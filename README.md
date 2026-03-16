@@ -53,30 +53,79 @@ Choose from:
 
 ### 2. Train the Learning AI
 
-Watch the neural network learn to beat the expert:
+🎓 **Progressive Training System** - Three-phase curriculum for optimal learning:
+
+#### Quick Start (Phase 1 Only)
+```bash
+python train_quick.py 500             # Train 500 games
+python train_quick.py 1000 --watch    # Train and watch result
+```
+
+#### Full Training Pipeline (All 3 Phases)
+```bash
+python train_progressive.py
+# Select option 1 to run all phases
+```
+
+**Phase 1: Basic Physics** (500 games)
+- No spin, no curve - just straight-line physics
+- Learn fundamental positioning and trajectory prediction
+- Goal: 40%+ win rate before advancing
+- Configuration: `enable_spin=False, enable_curve=False`
+
+**Phase 2: Spin Physics** (500 games)  
+- Builds on Phase 1 model
+- Enables spin and curve mechanics
+- Learn to handle and exploit spin to beat expert
+- Configuration: `enable_spin=True, enable_curve=True`
+
+**Phase 3: Progressive Speed** (500 games)
+- Builds on Phase 2 model
+- Ball gets progressively faster (increases every 5 points)
+- Learn to adapt to escalating difficulty
+- Configuration: `auto_progress=True, difficulty scaling`
+
+### 3. Evaluate Trained Models
+
+Test and visualize your trained AI:
 
 ```bash
-python train_ai.py
+python evaluate_ai.py
 ```
 
-**Visual Training** (recommended first):
-- Watch the AI learn in real-time
-- See spin values when the AI discovers useful spins
-- Track win rate improving over time
+**Options**:
+- Play visual game (watch AI in action)
+- Run benchmark test (100 games, headless)
+- Quick tests for each phase model
 
-**Fast Training** (headless):
-- Much faster (no graphics)
-- Train for 1000+ games quickly
-- Models auto-save and resume
-
-### 3. Watch Progress
-
-Early training:
+**Benchmark Results** (typical after full training):
 ```
-Game 1-10:   Win Rate: ~10% (Random flailing)
-Game 10-50:  Win Rate: ~30% (Learning to hit ball)
-Game 50-100: Win Rate: ~40% (Discovering patterns)
-Game 100+:   Win Rate: ~50%+ (Starting to exploit spin!)
+Phase 1 Model:  Win Rate ~40-50%  (basic physics)
+Phase 2 Model:  Win Rate ~50-60%  (with spin exploitation)
+Phase 3 Model:  Win Rate ~55-65%  (adaptive to difficulty)
+```
+
+### 4. Watch Progress
+
+**Phase 1 Training** (Basic Physics):
+```
+Game 1-50:   Win Rate: ~20% (Learning to hit ball)
+Game 50-200: Win Rate: ~35% (Discovering positioning)
+Game 200+:   Win Rate: ~45% (Consistent basic play)
+```
+
+**Phase 2 Training** (Adding Spin):
+```
+Game 1-50:   Win Rate: ~40% (Adapting to new physics)
+Game 50-200: Win Rate: ~50% (Learning spin patterns)
+Game 200+:   Win Rate: ~60% (Exploiting spin vs expert!)
+```
+
+**Phase 3 Training** (Progressive Speed):
+```
+Game 1-50:   Win Rate: ~50% (Handling speed changes)
+Game 50-200: Win Rate: ~55% (Adaptive strategy)
+Game 200+:   Win Rate: ~60%+ (Mastery across difficulties)
 ```
 
 ## 🎮 How It Works
@@ -196,36 +245,114 @@ learning_ai = LearningAI(
 )
 ```
 
+## 📁 File Structure
+
+```
+pong-ai/
+│
+├── Core Engine & Physics
+│   ├── pong_engine.py          # Game engine with advanced physics simulation
+│   └── pong_game.py             # Main game launcher (legacy, use scripts below)
+│
+├── AI Systems
+│   ├── pong_expert_ai.py        # Physics-perfect expert system (PID controller)
+│   └── pong_learning_ai.py      # Neural network learning AI (Deep Q-Learning)
+│
+├── Training Scripts (Use These!)
+│   ├── train_quick.py           # Quick start: Train Phase 1 (basic physics)
+│   ├── train_progressive.py     # Full pipeline: All 3 training phases
+│   └── evaluate_ai.py           # Test and visualize trained models
+│
+├── Demo & Debugging
+│   ├── demo_expert.py           # Watch expert AIs battle (visual demo)
+│   └── telemetry_monitor.py     # Real-time monitoring & debugging tool
+│
+├── Models & Data (Auto-created)
+│   └── models/progressive/
+│       ├── phase1_final.pkl     # Phase 1: Basic physics model
+│       ├── phase2_final.pkl     # Phase 2: Spin physics model
+│       ├── phase3_final.pkl     # Phase 3: Progressive speed model
+│       └── training_history.json # Training progress tracking
+│
+└── Documentation
+    ├── README.md                # This file
+    └── QUICK_REFERENCE.md       # (Optional) Quick command reference
+```
+
+### File Descriptions
+
+**Core Engine**:
+- `pong_engine.py` - Complete game engine with spin, curve, progressive difficulty
+- Features: 200 FPS physics, telemetry collection, difficulty scaling
+
+**Expert AI**:
+- `pong_expert_ai.py` - Physics-perfect trajectory prediction system
+- Uses: PID controller, freeze zones, straight-line physics only
+- Weakness: Blind to spin and curve effects!
+
+**Learning AI**:
+- `pong_learning_ai.py` - Deep Q-Learning neural network
+- Architecture: 10 inputs → 32 hidden → 3 outputs (UP/DOWN/STAY)
+- Features: Experience replay, epsilon-greedy exploration, target network
+
+**Training System**:
+- `train_quick.py` - Fastest way to get started (Phase 1 only)
+- `train_progressive.py` - Complete 3-phase curriculum training
+- `evaluate_ai.py` - Test trained models and run benchmarks
+
+**Utilities**:
+- `demo_expert.py` - Visual demonstration of expert systems
+- `telemetry_monitor.py` - Real-time 7-graph monitoring system
+
+## 📊 Training Data & Models
+
+Models are automatically saved to `models/progressive/`:
+
+**Phase 1 Models**:
+- `phase1_latest.pkl` - Resumable checkpoint (saves every 100 games)
+- `phase1_final.pkl` - Completed Phase 1 training
+- `phase1_gameX.pkl` - Periodic snapshots at game milestones
+
+**Phase 2 & 3 Models**: Same pattern
+
+**Training History**:
+- `training_history.json` - Win rate, games played, completion status
+
 ## 🎓 Next Steps & Enhancements
 
 Potential improvements to explore:
 
-1. **Add More Physics**:
-   - Variable ball speed on impact
-   - Power shots (faster volleys)
-   - Friction on paddles
+1. **Advanced Training**:
+   - Reduce paddle speed to 80% for harder challenge
+   - Train against multiple expert difficulty levels
+   - Implement curriculum learning with gradual transitions
 
-2. **Enhanced Learning**:
-   - Larger neural network
-   - CNN for spatial understanding
-   - Curiosity-driven exploration
+2. **Enhanced Physics**:
+   - Power shots (hold direction for stronger hits)
+   - Paddle friction zones (top/bottom create more spin)
+   - Ball degradation (spin decays faster)
 
-3. **Multi-Stage Learning**:
-   - Train against Easy → Medium → Hard → Perfect
-   - Curriculum learning approach
+3. **Better Learning**:
+   - Larger neural network (64+ hidden neurons)
+   - CNN for spatial awareness
+   - Multi-agent training (AI vs AI)
+   - Prioritized experience replay
 
 4. **Analysis Tools**:
-   - Plot win rate over time
-   - Visualize learned strategies
-   - Heatmap of preferred actions
+   - Plot win rate curves over training
+   - Visualize learned Q-values
+   - Heatmap of paddle positioning strategies
+   - Spin usage analysis
 
 ## 🏆 Success Metrics
 
 Your Learning AI is doing well when:
-- ✅ Win rate > 45% against 90% speed expert
-- ✅ Consistently creates spin (values > 10)
+- ✅ **Phase 1**: Win rate > 40% (basic physics mastered)
+- ✅ **Phase 2**: Win rate > 50% (spin exploitation discovered)
+- ✅ **Phase 3**: Win rate > 55% (adaptive to progressive difficulty)
+- ✅ Consistently creates spin (ball_spin values > 10)
 - ✅ Wins increase when spin/curve enabled vs disabled
-- ✅ Learns to stay near center when ball is far
+- ✅ Learns defensive positioning when ball is far away
 
 ## 📝 Technical Notes
 

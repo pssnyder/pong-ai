@@ -38,12 +38,32 @@ class PhysicsExpertAI:
         self.paddle_speed_multiplier = paddle_speed_multiplier
         self.reaction_frames = reaction_frames
         
+        # Distance interrupt - freeze when ball is this close
+        self.freeze_distance_before = 150  # Freeze when ball approaching within this distance
+        self.freeze_distance_after = 100   # Stay frozen after ball passes until it's this far away
+        self.is_frozen = False  # Track if currently in freeze state
+        self.last_ball_x = 0  # Track ball position to detect pass-through
+        
         # State tracking
         self.frames_since_decision = 0
         self.target_y = 0
         self.current_velocity = 0
         self.max_velocity = 50  # Maximum paddle velocity per frame
         self.acceleration = 5  # Paddle acceleration
+        
+        # Calculation frequency throttling
+        self.calculation_interval = 4  # Only recalculate every N frames (reduces jitter)
+        self.frames_since_calculation = 0
+        self.cached_target_y = 0
+        
+        # PID Controller parameters for smooth movement (retuned for less jitter)
+        self.kp = 0.35  # Proportional gain - reduced for smoother corrections
+        self.ki = 0.005  # Integral gain - reduced to prevent windup
+        self.kd = 0.25  # Derivative gain - moderate dampening
+        
+        self.last_error = 0
+        self.integral_error = 0
+        self.max_integral = 100  # Prevent integral windup
         
         # Physics calculation cache
         self.prediction_cache = None
@@ -78,10 +98,52 @@ class PhysicsExpertAI:
         else:
             paddle_y = raw['paddle_b_y']
         
-        # Calculate perfect intercept position
-        self.target_y = self._calculate_perfect_intercept(
-            ball_x, ball_y, ball_dx, ball_dy
-        )
+        # EXTENDED FREEZE ZONE - Prevents movement before AND after impact
+        # This eliminates spin control by ensuring paddle is stationary during entire collision
+        ball_distance = abs(ball_x - self.paddle_x)
+        ball_approaching = (self.side == 'A' and ball_dx < 0) or (self.side == 'B' and ball_dx > 0)
+        ball_moving_away = (self.side == 'A' and ball_dx > 0) or (self.side == 'B' and ball_dx < 0)
+        
+        # Enter freeze when ball gets close while approaching
+        if ball_approaching and ball_distance < self.freeze_distance_before:
+            self.is_frozen = True
+        
+        # Stay frozen even after ball passes, until it's far enough away
+        # This is the key: prevents immediate movement after contact
+        if self.is_frozen:
+            if ball_moving_away and ball_distance > self.freeze_distance_after:
+                # Ball has moved far enough away, release freeze
+                self.is_frozen = False
+            else:
+                # Still in freeze zone - no movement allowed
+                self.current_velocity = 0
+                self.integral_error = 0
+                self.last_error = 0
+                self.last_ball_x = ball_x
+                return Action.STAY
+        
+        # Store ball position for next frame
+        self.last_ball_x = ball_x
+        
+        # THROTTLE CALCULATIONS - Only recalculate target every N frames to reduce jitter
+        self.frames_since_calculation += 1
+        if self.frames_since_calculation >= self.calculation_interval:
+            self.frames_since_calculation = 0
+            
+            # Check if ball is moving away - if so, drift to center instead of tracking
+            ball_moving_away = (self.side == 'A' and ball_dx > 0) or (self.side == 'B' and ball_dx < 0)
+            
+            if ball_moving_away:
+                # Drift smoothly toward center to prepare for return
+                self.cached_target_y = 0  # Center position
+            else:
+                # Ball approaching - calculate perfect intercept
+                self.cached_target_y = self._calculate_perfect_intercept(
+                    ball_x, ball_y, ball_dx, ball_dy
+                )
+        
+        # Use cached target between calculations
+        self.target_y = self.cached_target_y
         
         # Apply speed multiplier limitation
         effective_speed = paddle_speed * self.paddle_speed_multiplier
@@ -100,12 +162,9 @@ class PhysicsExpertAI:
         - Perfect prediction for straight-line physics
         - Completely ignores spin and curve effects
         - Learning AI can exploit this by using spin/curve
+        
+        NOTE: Ball direction check removed - handled in decide_action now
         """
-        # Skip prediction if ball is moving away
-        if self.side == 'A' and ball_dx > 0:
-            return 0  # Return to center when ball moving away
-        elif self.side == 'B' and ball_dx < 0:
-            return 0
         
         # Calculate frames until ball reaches our paddle line
         distance_to_paddle = abs(self.paddle_x - ball_x)
@@ -148,42 +207,59 @@ class PhysicsExpertAI:
     
     def _calculate_action_with_physics(self, current_y, target_y, max_speed):
         """
-        Calculate action with realistic paddle physics (acceleration, max speed)
+        Calculate action using PID controller for smooth, oscillation-free movement
         
-        This makes the expert beatable - it can't instantly teleport to position
+        PID Controller:
+        - P (Proportional): Move based on distance to target
+        - I (Integral): Correct for persistent offset errors
+        - D (Derivative): Dampen oscillation by resisting rapid changes
+        
+        This creates smooth, professional-looking paddle movement
         """
-        distance = target_y - current_y
+        # Calculate error (distance to target)
+        error = target_y - current_y
         
-        # Dead zone - close enough
-        if abs(distance) < 3:
-            # Decelerate to stop
-            if abs(self.current_velocity) > 0.5:
-                if self.current_velocity > 0:
-                    self.current_velocity -= self.acceleration
-                else:
-                    self.current_velocity += self.acceleration
-            else:
+        # Dead zone - close enough, stop moving
+        if abs(error) < 5:
+            self.current_velocity *= 0.8  # Gentle deceleration
+            self.integral_error = 0  # Reset integral when at target
+            
+            if abs(self.current_velocity) < 0.5:
                 self.current_velocity = 0
-            return Action.STAY
-        
-        # Determine desired velocity direction
-        desired_direction = 1 if distance > 0 else -1
-        
-        # Accelerate toward target
-        if desired_direction > 0:
-            # Want to move up
-            self.current_velocity += self.acceleration
+                return Action.STAY
         else:
-            # Want to move down
-            self.current_velocity -= self.acceleration
+            # P: Proportional term - move toward target
+            p_term = self.kp * error
+            
+            # I: Integral term - accumulate error over time
+            self.integral_error += error
+            # Prevent integral windup
+            self.integral_error = max(-self.max_integral, min(self.max_integral, self.integral_error))
+            i_term = self.ki * self.integral_error
+            
+            # D: Derivative term - resist changes (dampen oscillation)
+            d_term = self.kd * (error - self.last_error)
+            
+            # Calculate desired velocity using PID
+            desired_velocity = p_term + i_term + d_term
+            
+            # Smooth velocity changes (low-pass filter)
+            alpha = 0.7  # Smoothing factor (0 = no change, 1 = instant change)
+            self.current_velocity = (alpha * desired_velocity) + ((1 - alpha) * self.current_velocity)
+            
+            # Clamp to max velocity
+            self.current_velocity = max(-self.max_velocity, min(self.max_velocity, self.current_velocity))
         
-        # Clamp to max velocity
-        self.current_velocity = max(-self.max_velocity, min(self.max_velocity, self.current_velocity))
+        # Store error for next derivative calculation
+        self.last_error = error
         
-        # Convert velocity to action
-        if self.current_velocity > max_speed / 2:
+        # Convert velocity to discrete action
+        # Use hysteresis to prevent action flickering
+        threshold = max_speed * 0.3
+        
+        if self.current_velocity > threshold:
             return Action.UP
-        elif self.current_velocity < -max_speed / 2:
+        elif self.current_velocity < -threshold:
             return Action.DOWN
         else:
             return Action.STAY
@@ -202,6 +278,12 @@ class PhysicsExpertAI:
         self.frames_since_decision = 0
         self.target_y = 0
         self.current_velocity = 0
+        self.last_error = 0
+        self.integral_error = 0
+        self.is_frozen = False
+        self.last_ball_x = 0
+        self.frames_since_calculation = 0
+        self.cached_target_y = 0
         self.prediction_cache = None
         self.last_ball_state = None
     
@@ -212,7 +294,10 @@ class PhysicsExpertAI:
             'side': self.side,
             'speed_multiplier': self.paddle_speed_multiplier,
             'reaction_frames': self.reaction_frames,
-            'description': f"Perfect Physics AI (Speed: {self.paddle_speed_multiplier:.0%}, Reaction: {self.reaction_frames}f)",
+            'freeze_before': self.freeze_distance_before,
+            'freeze_after': self.freeze_distance_after,
+            'description': f"Perfect Physics AI (Speed: {self.paddle_speed_multiplier:.0%}, Freeze: {self.freeze_distance_before}px→{self.freeze_distance_after}px)",
+            'strategy': 'Extended Freeze Zone - No movement during entire collision window',
             'weakness': 'Ignores spin and curve - exploitable by advanced tactics!'
         }
 

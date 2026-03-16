@@ -1,0 +1,27 @@
+# Python Requirements for Pong AI Project
+# Core dependencies for game engine and AI training
+
+# Turtle graphics (built-in with Python, but listed for reference)
+# No installation needed for turtle
+
+# NumPy - for neural network calculations
+numpy>=1.21.0
+
+# Matplotlib - for telemetry monitoring and visualization
+matplotlib>=3.4.0
+
+# Standard library packages (no installation needed):
+# - pickle (model saving)
+# - json (data serialization)
+# - time (timing)
+# - datetime (timestamps)
+# - math (physics calculations)
+# - random (exploration)
+# - collections (deque for replay memory)
+# - enum (Action enum)
+# - os (file operations)
+
+# Optional (for future enhancements):
+# pytorch>=1.9.0  # For advanced neural networks
+# tensorboard>=2.6.0  # For training visualization
+# pandas>=1.3.0  # For data analysis

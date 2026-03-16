@@ -29,6 +29,12 @@ def demo_expert_vs_expert(games=5, enable_spin=True, enable_curve=True):
     mode_str = " + ".join(physics_mode) if physics_mode else "BASIC"
     
     print(f"\nPhysics Mode: {mode_str}")
+    print("\n🎯 PROGRESSIVE DIFFICULTY ENABLED!")
+    print("   Difficulty increases every 5 points scored")
+    print("   • Paddles get SLOWER (harder to react)")
+    print("   • Ball gets FASTER (harder to track)")
+    print("   • Watch as perfect AIs eventually fail!")
+    print()
     print("\nWatching Expert AIs Battle:")
     print("  • LEFT (Paddle A): FAST Physics Expert (95% speed)")
     print("  • RIGHT (Paddle B): MEDIUM Physics Expert (85% speed)")
@@ -37,19 +43,34 @@ def demo_expert_vs_expert(games=5, enable_spin=True, enable_curve=True):
     print("           BUT they only see straight-line vectors!")
     print("           Spin and curve are INVISIBLE to them!")
     print()
+    print("EXTENDED FREEZE ZONE:")
+    print("  • Freeze when ball within 150px (approaching)")
+    print("  • Stay frozen during impact")
+    print("  • Remain frozen until ball 100px away (departing)")
+    print("  → This prevents ANY spin control from paddle movement")
+    print("  → Trade-off: Predictability over Perfection!")
+    print()
     print("Watch how the physics creates unpredictable outcomes...")
     print("=" * 70)
     print()
     
-    # Create game engine with advanced physics
+    # Create game engine with advanced physics AND progressive difficulty
     engine = PongEngine(
         visible=True, 
         ball_speed=1.5,
         paddle_speed=25,
         enable_spin=enable_spin,
         enable_curve=enable_curve,
-        frame_rate=200
+        frame_rate=200,
+        difficulty_level=1,  # Start at level 1
+        auto_progress=True,  # Auto-increase difficulty
+        points_per_level=5   # Level up every 5 points
     )
+    
+    # Enable telemetry for debugging
+    engine.enable_telemetry()
+    print("📊 Telemetry enabled - data will be saved to telemetry.json")
+    print("   Run 'python telemetry_monitor.py' in another terminal to watch live graphs!\n")
     
     # Create two expert AIs with different speeds
     ai_a = PhysicsExpertAI(side='A', paddle_speed_multiplier=0.95, reaction_frames=1)
@@ -77,10 +98,17 @@ def demo_expert_vs_expert(games=5, enable_spin=True, enable_curve=True):
                 action_a = ai_a.decide_action(state)
                 action_b = ai_b.decide_action(state)
                 
+                # Report target positions for telemetry
+                engine.set_paddle_targets(ai_a.target_y, ai_b.target_y)
+                
                 # Execute game step
                 state, reward_a, reward_b, done = engine.step(action_a, action_b)
                 
                 frame_count += 1
+                
+                # Export telemetry periodically for live monitoring
+                if frame_count % 100 == 0:
+                    engine.export_telemetry('telemetry.json')
                 
                 # Check for scoring
                 if reward_a > 0.5 or reward_b > 0.5:
@@ -104,6 +132,10 @@ def demo_expert_vs_expert(games=5, enable_spin=True, enable_curve=True):
     
     except KeyboardInterrupt:
         print("\n\n⏸️  Demo stopped by user")
+    
+    # Final telemetry export
+    engine.export_telemetry('telemetry.json')
+    print("📊 Final telemetry saved to telemetry.json")
     
     print("\n" + "=" * 70)
     print("Demo Complete! Press Ctrl+C to exit.")
