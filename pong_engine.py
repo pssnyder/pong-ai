@@ -18,60 +18,157 @@ class Action(Enum):
 
 class DifficultyLevel:
     """
-    Progressive difficulty system that affects game mechanics
+    Advanced Tournament-Style Difficulty System
     
-    As difficulty increases:
-    - Paddle speed DECREASES (harder to reach ball)
-    - Max ball speed INCREASES (ball moves faster)
-    - Ball speed variation increases (more unpredictable)
+    Philosophy:
+    - Levels 1-5: Subtle handicaps (Fibonacci/log scaling)
+    - Levels 6-10: Aggressive handicaps (realistic physics simulation)
+    - Ball speed increases per hit within each volley (resets on point)
+    - Paddle physics become more realistic: mass, inertia, momentum
     
-    This creates natural skill ceilings and prevents infinite perfect games
+    This simulates tournament progression where:
+    - Early rounds are fast-paced and reactive
+    - Later rounds require strategic positioning and prediction
+    - Ball acceleration creates dynamic within-point difficulty
     """
     
     def __init__(self, level=1):
         """
-        Initialize difficulty level
+        Initialize difficulty level with logarithmic/Fibonacci scaling
         
         Args:
-            level: Difficulty level (1-10+)
-                  1 = Easy, 5 = Medium, 10 = Hard, 15+ = Expert
+            level: Tournament level (1-10)
+                  1-3 = Amateur (fast paddles, forgiving)
+                  4-6 = Professional (moderate slowdown, some inertia)
+                  7-9 = Expert (significant slowdown, realistic physics)
+                  10 = Master (extreme challenge, full physics)
         """
-        self.level = max(1, level)
+        self.level = max(1, min(10, level))
         
-        # Calculate difficulty-scaled parameters
-        # Paddle speed: 100% at level 1, down to 40% at level 10
-        self.paddle_speed_multiplier = max(0.4, 1.0 - (self.level - 1) * 0.06)
+        # Level names
+        level_names = {
+            1: "Amateur I", 2: "Amateur II", 3: "Amateur III",
+            4: "Pro I", 5: "Pro II", 6: "Pro III",
+            7: "Expert I", 8: "Expert II", 9: "Expert III",
+            10: "Master"
+        }
+        self.name = level_names.get(self.level, f"Level {self.level}")
         
-        # Max ball speed: 1.0x at level 1, up to 3.0x at level 10
-        self.max_ball_speed_multiplier = 1.0 + (self.level - 1) * 0.2
+        # Fibonacci-based paddle speed reduction (subtle early, aggressive late)
+        # Uses modified Fibonacci ratio for smooth curve
+        fib_sequence = [1, 1, 2, 3, 5, 8, 13, 21, 34, 55]  # Fib(1) to Fib(10)
+        fib_max = fib_sequence[9]  # 55 at level 10
+        fib_reduction = fib_sequence[self.level - 1] / fib_max
         
-        # Ball speed variation on impact (randomness factor)
-        self.ball_speed_variation = 0.1 + (self.level - 1) * 0.02  # 10% to 28% at level 10
+        # Paddle speed: 100% at L1, ~98% at L2, ~96% at L3, down to ~38% at L10
+        # Formula: 1.0 - (fib_reduction * 0.62)
+        self.paddle_speed_multiplier = 1.0 - (fib_reduction * 0.62)
         
-        # Impact velocity transfer (how much paddle velocity affects ball)
-        self.impact_velocity_transfer = 0.3 + (self.level - 1) * 0.02  # 30% to 48% at level 10
+        # Paddle acceleration limit (affects how quickly paddle can change speed)
+        # Lower levels = instant response, higher levels = sluggish
+        self.paddle_acceleration_multiplier = 1.0 - (fib_reduction * 0.70)  # 100% → 30%
+        
+        # Paddle mass/inertia (affects momentum and overshooting)
+        # Higher mass = more overshoot potential
+        import math
+        self.paddle_mass = 1.0 + (math.log(self.level + 1) * 0.5)  # 1.0 → ~2.2
+        
+        # PID controller aggressiveness (higher levels need gentler control)
+        # Lower Kp at higher levels = less oscillation but slower response
+        self.pid_kp_multiplier = 1.0 - (fib_reduction * 0.50)  # 100% → 50%
+        self.pid_kd_multiplier = 1.0 + (fib_reduction * 1.0)   # 100% → 200%
+        
+        # Ball speed acceleration per hit (within volley)
+        # Logarithmic growth: subtle at first, noticeable after many hits
+        # Formula: speed *= (1 + acceleration_factor)
+        self.ball_speed_per_hit_factor = 0.015 + (self.level - 1) * 0.002  # 1.5% → 3.3%
+        
+        # Max ball speed cap (prevents infinite acceleration)
+        self.max_ball_speed_multiplier = 2.0 + (self.level - 1) * 0.3  # 2.0x → 4.7x
+        
+        # Ball speed variation on impact (randomness)
+        self.ball_speed_variation = 0.05 + (fib_reduction * 0.15)  # 5% → 20%
+        
+        # Impact velocity transfer (paddle velocity affects ball)
+        self.impact_velocity_transfer = 0.25 + (fib_reduction * 0.25)  # 25% → 50%
     
     def get_paddle_speed(self, base_speed):
-        """Get difficulty-adjusted paddle speed"""
+        """Get difficulty-adjusted maximum paddle speed"""
         return base_speed * self.paddle_speed_multiplier
+    
+    def get_paddle_acceleration(self, base_accel):
+        """Get difficulty-adjusted paddle acceleration"""
+        return base_accel * self.paddle_acceleration_multiplier
+    
+    def get_ball_speed_after_hit(self, current_speed, volley_count):
+        """
+        Calculate ball speed after paddle hit with logarithmic acceleration
+        
+        Args:
+            current_speed: Base ball speed (typically at start of volley)
+            volley_count: Number of hits in current volley (0 = first hit)
+        
+        Returns:
+            New ball speed (capped at max)
+        """
+        import math
+        # Logarithmic acceleration: fast growth early, slows down later
+        # Formula: base_speed * (1 + log(hits + 1) * factor)
+        # After 1 hit: ~1.5-3.3% faster
+        # After 5 hits: ~4-9% faster  
+        # After 10 hits: ~6-14% faster
+        # After 20 hits: ~9-20% faster
+        acceleration_factor = 1.0 + (math.log(volley_count + 1) * self.ball_speed_per_hit_factor)
+        new_speed = current_speed * acceleration_factor
+        
+        # Cap at maximum
+        max_speed = current_speed * self.max_ball_speed_multiplier
+        return min(new_speed, max_speed)
     
     def get_max_ball_speed(self, base_speed):
         """Get difficulty-adjusted max ball speed"""
         return base_speed * self.max_ball_speed_multiplier
     
+    def get_pid_params(self, base_kp, base_ki, base_kd):
+        """
+        Get difficulty-adjusted PID parameters
+        Higher levels need gentler control to avoid overshooting
+        """
+        return (
+            base_kp * self.pid_kp_multiplier,  # Reduced proportional gain
+            base_ki,                            # Keep integral constant
+            base_kd * self.pid_kd_multiplier    # Increased derivative damping
+        )
+    
     def get_description(self):
         """Get human-readable difficulty description"""
         if self.level <= 3:
-            return f"Level {self.level}: Easy"
+            return f"Level {self.level}: Amateur Tournament"
         elif self.level <= 6:
-            return f"Level {self.level}: Medium"
+            return f"Level {self.level}: Professional"
         elif self.level <= 9:
-            return f"Level {self.level}: Hard"
+            return f"Level {self.level}: Expert Championship"
         else:
-            return f"Level {self.level}: Expert"
+            return f"Level {self.level}: Master Class"
+    
+    def get_physics_description(self):
+        """Get description of physics enabled at this level"""
+        physics = []
+        if self.level >= 3:
+            physics.append("Paddle Inertia")
+        if self.level >= 5:
+            physics.append("Momentum Overshoot")
+        if self.level >= 7:
+            physics.append("Realistic Mass")
+        if self.level >= 9:
+            physics.append("Fatigue Simulation")
+        return ", ".join(physics) if physics else "Basic Physics"
     
     def __str__(self):
-        return f"Difficulty {self.get_description()} (Paddle: {self.paddle_speed_multiplier:.0%}, Ball: {self.max_ball_speed_multiplier:.1f}x)"
+        return (f"Level {self.level}: {self.get_description()} | "
+                f"Paddle: {self.paddle_speed_multiplier:.0%} speed, {self.paddle_acceleration_multiplier:.0%} accel | "
+                f"Mass: {self.paddle_mass:.1f}x | "
+                f"Ball: +{self.ball_speed_per_hit_factor*100:.1f}%/hit, {self.max_ball_speed_multiplier:.1f}x max")
 
 
 class PongEngine:
@@ -87,7 +184,7 @@ class PongEngine:
     
     def __init__(self, width=800, height=600, ball_speed=1.0, paddle_speed=25, 
                  visible=True, enable_spin=True, enable_curve=True, frame_rate=200,
-                 difficulty_level=1, auto_progress=False, points_per_level=5):
+                 difficulty_level=1, auto_progress=False, points_per_level=5, winning_score=11):
         """
         Initialize Pong game engine
         
@@ -103,6 +200,7 @@ class PongEngine:
             difficulty_level: Starting difficulty level (1-10+)
             auto_progress: Automatically increase difficulty as game progresses
             points_per_level: Points needed to advance difficulty (if auto_progress=True)
+            winning_score: Score needed to win game (11 = first to 11 points)
         """
         self.width = width
         self.height = height
@@ -128,7 +226,12 @@ class PongEngine:
         self.score_a = 0
         self.score_b = 0
         self.game_over = False
+        self.winning_score = winning_score  # First to this score wins
         self.frame_count = 0
+        
+        # Volley tracking for per-hit ball speed acceleration
+        self.current_volley_count = 0  # Number of paddle hits in current point
+        self.volley_base_speed = self.base_ball_speed  # Original speed at start of volley
         
         # Telemetry system for debugging and analysis
         self.telemetry_enabled = False
@@ -354,6 +457,63 @@ class PongEngine:
         
         return state
     
+    def reset(self):
+        """
+        Reset game state for a new round
+        
+        Returns:
+            dict: Initial game state
+        """
+        # Reset scores
+        self.score_a = 0
+        self.score_b = 0
+        self.game_over = False
+        self.frame_count = 0
+        
+        # Reset difficulty if not auto-progressing
+        if not self.auto_progress:
+            self.difficulty = DifficultyLevel(1)
+            self.paddle_speed = self.difficulty.get_paddle_speed(self.base_paddle_speed)
+            self.ball_speed = self.difficulty.get_max_ball_speed(self.base_ball_speed)
+        
+        self.points_at_last_level = 0
+        
+        # Reset ball position and velocity
+        if self.visible:
+            self.ball.goto(0, 0)
+            self.ball.dx = self.ball_speed
+            self.ball.dy = self.ball_speed
+            self.ball.spin = 0.0
+            
+            self.padA.goto(-350, 0)
+            self.padB.goto(350, 0)
+            self.padA_prev_y = 0
+            self.padB_prev_y = 0
+            self.padA_velocity = 0
+            self.padB_velocity = 0
+            
+            self._update_score()
+            self._update_physics_display()
+        else:
+            self.ball_x = 0
+            self.ball_y = 0
+            self.ball_dx = self.ball_speed
+            self.ball_dy = self.ball_speed
+            self.ball_spin = 0.0
+            
+            self.padA_y = 0
+            self.padB_y = 0
+            self.padA_velocity = 0
+            self.padB_velocity = 0
+        
+        # Clear telemetry
+        if self.telemetry_enabled:
+            for key in self.telemetry_data:
+                if isinstance(self.telemetry_data[key], list):
+                    self.telemetry_data[key] = []
+        
+        return self.get_state()
+    
     def step(self, action_a, action_b):
         """
         Execute one game step with given actions
@@ -393,7 +553,7 @@ class PongEngine:
         return self.get_state(), reward_a, reward_b, self.game_over
     
     def _move_paddle(self, paddle, action):
-        """Move a paddle based on action and track velocity"""
+        """Move a paddle based on action, difficulty, and paddle mass/inertia"""
         if action == Action.STAY:
             if paddle == 'A':
                 self.padA_velocity = 0
@@ -401,7 +561,34 @@ class PongEngine:
                 self.padB_velocity = 0
             return
         
-        movement = self.paddle_speed * action.value
+        # Apply difficulty-based paddle speed reduction
+        effective_paddle_speed = self.paddle_speed * self.difficulty.paddle_speed_multiplier
+        
+        # Base acceleration (can be tuned for responsiveness)
+        base_acceleration = 50.0  # Base acceleration rate
+        
+        # Calculate maximum acceleration based on difficulty
+        max_acceleration = self.difficulty.get_paddle_acceleration(base_acceleration)
+        
+        # Get current velocity and mass
+        current_velocity = self.padA_velocity if paddle == 'A' else self.padB_velocity
+        paddle_mass = self.difficulty.paddle_mass
+        
+        # Desired movement based on action
+        desired_velocity = effective_paddle_speed * action.value
+        
+        # Apply mass-based inertia (heavier paddles accelerate slower)
+        # acceleration = (desired_velocity - current_velocity) / mass
+        velocity_change = (desired_velocity - current_velocity) / paddle_mass
+        
+        # Clamp acceleration to difficulty limit
+        velocity_change = max(-max_acceleration, min(max_acceleration, velocity_change))
+        
+        # Update velocity with mass-dampened acceleration
+        new_velocity = current_velocity + velocity_change
+        
+        # Movement for this frame (velocity is in pixels/second, convert to pixels/frame)
+        movement = (new_velocity * self.frame_time) if self.frame_time > 0 else 0
         
         if self.visible:
             paddle_obj = self.padA if paddle == 'A' else self.padB
@@ -411,25 +598,26 @@ class PongEngine:
             new_y = max(-230, min(230, new_y))
             paddle_obj.sety(new_y)
             
-            # Calculate actual velocity (actual movement / frame_time)
+            # Update velocity based on actual movement
             actual_movement = new_y - old_y
-            velocity = actual_movement / self.frame_time if self.frame_time > 0 else 0
             
             if paddle == 'A':
-                self.padA_velocity = velocity
+                self.padA_velocity = new_velocity if actual_movement != 0 else 0
             else:
-                self.padB_velocity = velocity
+                self.padB_velocity = new_velocity if actual_movement != 0 else 0
         else:
             if paddle == 'A':
                 old_y = self.padA_y
                 self.padA_y += movement
                 self.padA_y = max(-230, min(230, self.padA_y))
-                self.padA_velocity = (self.padA_y - old_y) / self.frame_time if self.frame_time > 0 else 0
+                actual_movement = self.padA_y - old_y
+                self.padA_velocity = new_velocity if actual_movement != 0 else 0
             else:
                 old_y = self.padB_y
                 self.padB_y += movement
                 self.padB_y = max(-230, min(230, self.padB_y))
-                self.padB_velocity = (self.padB_y - old_y) / self.frame_time if self.frame_time > 0 else 0
+                actual_movement = self.padB_y - old_y
+                self.padB_velocity = new_velocity if actual_movement != 0 else 0
     
     def _update_ball(self):
         """
@@ -482,6 +670,14 @@ class PongEngine:
                 reward_b = -1
                 self._update_score()
                 self._check_difficulty_progression()  # Check for level up
+                
+                # Reset volley tracking
+                self.current_volley_count = 0
+                self.volley_base_speed = self.base_ball_speed
+                
+                # Check for game over
+                if self.score_a >= self.winning_score or self.score_b >= self.winning_score:
+                    self.game_over = True
             
             # Left boundary (Paddle B scores)
             elif new_x < -390:
@@ -494,6 +690,14 @@ class PongEngine:
                 reward_b = 1
                 self._update_score()
                 self._check_difficulty_progression()  # Check for level up
+                
+                # Reset volley tracking
+                self.current_volley_count = 0
+                self.volley_base_speed = self.base_ball_speed
+                
+                # Check for game over
+                if self.score_a >= self.winning_score or self.score_b >= self.winning_score:
+                    self.game_over = True
             
             # Paddle B collision (right paddle)
             elif (new_x > 340 and new_x < 350 and 
@@ -507,6 +711,16 @@ class PongEngine:
                 ball_dx, ball_dy = self._calculate_impact_ball_speed(
                     ball_dx, ball_dy, self.padB_velocity, impact_offset
                 )
+                
+                # Apply per-hit ball acceleration within volley
+                self.current_volley_count += 1
+                current_ball_speed = math.sqrt(ball_dx**2 + ball_dy**2)
+                new_ball_speed = self.difficulty.get_ball_speed_after_hit(
+                    self.volley_base_speed, self.current_volley_count
+                )
+                speed_ratio = new_ball_speed / current_ball_speed if current_ball_speed > 0 else 1.0
+                ball_dx *= speed_ratio
+                ball_dy *= speed_ratio
                 
                 # Apply spin ONLY from paddle velocity (not impact position)
                 # Off-center hits affect angle via ball_dy calculation, not spin
@@ -532,6 +746,16 @@ class PongEngine:
                 ball_dx, ball_dy = self._calculate_impact_ball_speed(
                     ball_dx, ball_dy, self.padA_velocity, impact_offset
                 )
+                
+                # Apply per-hit ball acceleration within volley
+                self.current_volley_count += 1
+                current_ball_speed = math.sqrt(ball_dx**2 + ball_dy**2)
+                new_ball_speed = self.difficulty.get_ball_speed_after_hit(
+                    self.volley_base_speed, self.current_volley_count
+                )
+                speed_ratio = new_ball_speed / current_ball_speed if current_ball_speed > 0 else 1.0
+                ball_dx *= speed_ratio
+                ball_dy *= speed_ratio
                 
                 # Apply spin ONLY from paddle velocity (not impact position)
                 if self.enable_spin:
@@ -580,6 +804,16 @@ class PongEngine:
                 self.score_a += 1
                 reward_a = 1
                 reward_b = -1
+                self._check_difficulty_progression()
+                
+                # Reset volley tracking
+                self.current_volley_count = 0
+                self.volley_base_speed = self.base_ball_speed
+                
+                # Check for game over
+                if self.score_a >= self.winning_score or self.score_b >= self.winning_score:
+                    self.game_over = True
+                    
             elif self.ball_x < -390:
                 self.ball_x = 0
                 self.ball_y = 0
@@ -589,6 +823,15 @@ class PongEngine:
                 self.score_b += 1
                 reward_a = -1
                 reward_b = 1
+                self._check_difficulty_progression()
+                
+                # Reset volley tracking
+                self.current_volley_count = 0
+                self.volley_base_speed = self.base_ball_speed
+                
+                # Check for game over
+                if self.score_a >= self.winning_score or self.score_b >= self.winning_score:
+                    self.game_over = True
             
             # Paddle collisions with spin and dynamic ball speed
             elif (self.ball_x > 340 and self.ball_x < 350 and 
@@ -602,6 +845,16 @@ class PongEngine:
                 self.ball_dx, self.ball_dy = self._calculate_impact_ball_speed(
                     self.ball_dx, self.ball_dy, self.padB_velocity, impact_offset
                 )
+                
+                # Apply per-hit ball acceleration within volley
+                self.current_volley_count += 1
+                current_ball_speed = math.sqrt(self.ball_dx**2 + self.ball_dy**2)
+                new_ball_speed = self.difficulty.get_ball_speed_after_hit(
+                    self.volley_base_speed, self.current_volley_count
+                )
+                speed_ratio = new_ball_speed / current_ball_speed if current_ball_speed > 0 else 1.0
+                self.ball_dx *= speed_ratio
+                self.ball_dy *= speed_ratio
                 
                 # Spin ONLY from paddle velocity
                 if self.enable_spin:
@@ -622,6 +875,16 @@ class PongEngine:
                     self.ball_dx, self.ball_dy, self.padA_velocity, impact_offset
                 )
                 
+                # Apply per-hit ball acceleration within volley
+                self.current_volley_count += 1
+                current_ball_speed = math.sqrt(self.ball_dx**2 + self.ball_dy**2)
+                new_ball_speed = self.difficulty.get_ball_speed_after_hit(
+                    self.volley_base_speed, self.current_volley_count
+                )
+                speed_ratio = new_ball_speed / current_ball_speed if current_ball_speed > 0 else 1.0
+                self.ball_dx *= speed_ratio
+                self.ball_dy *= speed_ratio
+                
                 # Spin ONLY from paddle velocity
                 if self.enable_spin:
                     self.ball_spin = self.padA_velocity * 0.15
@@ -630,41 +893,6 @@ class PongEngine:
                 reward_a = 0.1
         
         return reward_a, reward_b
-    
-    def reset(self):
-        """Reset the game to initial state"""
-        self.score_a = 0
-        self.score_b = 0
-        self.game_over = False
-        self.frame_count = 0
-        
-        if self.visible:
-            self.padA.goto(-350, 0)
-            self.padB.goto(350, 0)
-            self.padA_prev_y = 0
-            self.padB_prev_y = 0
-            self.padA_velocity = 0
-            self.padB_velocity = 0
-            
-            self.ball.goto(0, 0)
-            self.ball.dx = self.ball_speed
-            self.ball.dy = self.ball_speed
-            self.ball.spin = 0.0
-            
-            self._update_score()
-            self._update_physics_display()
-        else:
-            self.padA_y = 0
-            self.padB_y = 0
-            self.padA_velocity = 0
-            self.padB_velocity = 0
-            self.ball_x = 0
-            self.ball_y = 0
-            self.ball_dx = self.ball_speed
-            self.ball_dy = self.ball_speed
-            self.ball_spin = 0.0
-        
-        return self.get_state()
     
     def enable_telemetry(self):
         """Enable telemetry data collection"""

@@ -137,10 +137,17 @@ class ProgressiveTrainer:
         start_time = time.time()
         
         print(f"\nStarting training from game {start_game} to {target_game}...")
-        print("Press Ctrl+C to stop training and save progress\n")
+        print("Press Ctrl+C to stop training and save progress")
+        print("(First 5 games will show detailed output, then updates every 10 games)\n")
         
         try:
+            game_num = 0
             while ai.games_played < target_game:
+                game_num += 1
+                
+                if game_num == 1:
+                    print(f"Starting game loop... (target: {target_game} games)\n")
+                
                 # Create game engine - NO spin, NO curve, steady speed
                 engine = PongEngine(
                     visible=False,
@@ -154,8 +161,11 @@ class ProgressiveTrainer:
                 # Play one game
                 state = engine.get_state()
                 prev_state = state
+                frame_count = 0
+                max_frames = 10000  # Prevent infinite games
                 
-                while not engine.game_over:
+                while not engine.game_over and frame_count < max_frames:
+                    frame_count += 1
                     # AI decides action
                     ai_action = ai.decide_action(state, training=True)
                     expert_action = expert.decide_action(state)
@@ -166,9 +176,9 @@ class ProgressiveTrainer:
                     
                     # Calculate reward
                     reward = 0
-                    if engine.score_a > prev_state['raw']['score_a']:  # AI scored
+                    if engine.score_a > prev_state['score_a']:  # AI scored
                         reward = 1.0
-                    elif engine.score_b > prev_state['raw']['score_b']:  # Expert scored
+                    elif engine.score_b > prev_state['score_b']:  # Expert scored
                         reward = -1.0
                     else:
                         # Small reward for tracking ball
@@ -191,7 +201,14 @@ class ProgressiveTrainer:
                 ai.end_game(engine.score_a, engine.score_b)
                 recent_scores.append((engine.score_a, engine.score_b))
                 
-                # Update progress
+                # Print game result
+                if game_num <= 5 or game_num % 10 == 0:  # First 5 games and every 10th
+                    stats = ai.get_stats()
+                    result = "WIN" if engine.score_a > engine.score_b else ("LOSS" if engine.score_b > engine.score_a else "TIE")
+                    print(f"\nGame {ai.games_played}: AI {engine.score_a}-{engine.score_b} Expert [{result}] | "
+                          f"Overall: W:{stats['wins']} L:{stats['losses']} T:{stats['ties']} ({stats['win_rate']*100:.1f}% WR)")
+                
+                # Update progress (in-place for other games)
                 games_completed = ai.games_played - start_game
                 time_elapsed = time.time() - start_time
                 self.print_progress("Phase 1", games_completed, games, ai.get_stats(),
@@ -318,11 +335,11 @@ class ProgressiveTrainer:
                     
                     # Calculate reward (bonus for winning with spin!)
                     reward = 0
-                    if engine.score_a > prev_state['raw']['score_a']:
+                    if engine.score_a > prev_state['score_a']:
                         # Bonus reward if ball had spin (AI learning to use spin)
                         spin_bonus = abs(new_state.get('ball_spin', 0)) * 0.01
                         reward = 1.0 + spin_bonus
-                    elif engine.score_b > prev_state['raw']['score_b']:
+                    elif engine.score_b > prev_state['score_b']:
                         reward = -1.0
                     else:
                         ball_y = new_state['ball_y']
@@ -469,12 +486,12 @@ class ProgressiveTrainer:
                     
                     # Calculate reward
                     reward = 0
-                    if engine.score_a > prev_state['raw']['score_a']:
+                    if engine.score_a > prev_state['score_a']:
                         # Extra reward for scoring at higher difficulty
                         difficulty_bonus = engine.difficulty.level * 0.1
                         spin_bonus = abs(new_state.get('ball_spin', 0)) * 0.01
                         reward = 1.0 + difficulty_bonus + spin_bonus
-                    elif engine.score_b > prev_state['raw']['score_b']:
+                    elif engine.score_b > prev_state['score_b']:
                         reward = -1.0
                     else:
                         ball_y = new_state['ball_y']

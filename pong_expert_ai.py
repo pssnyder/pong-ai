@@ -24,7 +24,7 @@ class PhysicsExpertAI:
     - As learning AI gets better, it exploits the expert's blind spots
     """
     
-    def __init__(self, side='B', paddle_speed_multiplier=0.9, reaction_frames=0):
+    def __init__(self, side='B', paddle_speed_multiplier=0.9, reaction_frames=0, difficulty=None):
         """
         Initialize Physics Expert AI
         
@@ -32,11 +32,13 @@ class PhysicsExpertAI:
             side: Which paddle this AI controls ('A' or 'B')
             paddle_speed_multiplier: Speed multiplier (0.9 = slightly slower than perfect)
             reaction_frames: Frames of delay before reacting (0 = instant)
+            difficulty: DifficultyLevel object for tournament scaling (optional)
         """
         self.side = side
         self.paddle_x = -350 if side == 'A' else 350
         self.paddle_speed_multiplier = paddle_speed_multiplier
         self.reaction_frames = reaction_frames
+        self.difficulty = difficulty
         
         # Distance interrupt - freeze when ball is this close
         self.freeze_distance_before = 150  # Freeze when ball approaching within this distance
@@ -56,10 +58,18 @@ class PhysicsExpertAI:
         self.frames_since_calculation = 0
         self.cached_target_y = 0
         
-        # PID Controller parameters for smooth movement (retuned for less jitter)
-        self.kp = 0.35  # Proportional gain - reduced for smoother corrections
-        self.ki = 0.005  # Integral gain - reduced to prevent windup
-        self.kd = 0.25  # Derivative gain - moderate dampening
+        # PID Controller base parameters (can be scaled by difficulty)
+        base_kp = 0.35  # Proportional gain
+        base_ki = 0.005  # Integral gain
+        base_kd = 0.25  # Derivative gain
+        
+        # Apply difficulty-based PID scaling if difficulty provided
+        if self.difficulty:
+            self.kp, self.ki, self.kd = self.difficulty.get_pid_params(base_kp, base_ki, base_kd)
+        else:
+            self.kp = base_kp
+            self.ki = base_ki
+            self.kd = base_kd
         
         self.last_error = 0
         self.integral_error = 0

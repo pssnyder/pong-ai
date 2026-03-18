@@ -78,8 +78,11 @@ class AIEvaluator:
         print(f"LOADED MODEL: {os.path.basename(model_path)}")
         print("="*80)
         print(f"Training History: {stats['games_played']} games")
-        print(f"Win Rate: {stats['win_rate']*100:.1f}%")
-        print(f"Current Exploration: {stats['exploration']}")
+        print(f"\n📊 LEARNING AI Statistics (vs Expert):")
+        print(f"  Win Rate:  {stats['win_rate']*100:5.1f}% ({stats['wins']} wins)")
+        print(f"  Loss Rate: {stats['loss_rate']*100:5.1f}% ({stats['losses']} losses)")
+        print(f"  Tie Rate:  {stats['tie_rate']*100:5.1f}% ({stats['ties']} ties)")
+        print(f"  Exploration: {stats['exploration']} (random actions)")
         print("="*80)
         
         # Setup game configuration
@@ -110,7 +113,13 @@ class AIEvaluator:
         print("Game started! Watch the AI play...")
         print("Left paddle (white) = Learning AI")
         print("Right paddle (white) = Expert AI")
+        print("\n💡 TIP: If paddle doesn't move, AI hasn't learned yet!")
+        print("   (Needs ~100-200 training games to start learning)")
         print("\nClose window to exit\n")
+        
+        # Track actions for debugging
+        action_counts = {'UP': 0, 'DOWN': 0, 'STAY': 0}
+        frame_count = 0
         
         # Play game
         try:
@@ -118,6 +127,12 @@ class AIEvaluator:
                 state = engine.get_state()
                 ai_action = ai.decide_action(state, training=False)  # Full exploitation
                 expert_action = expert.decide_action(state)
+                
+                # Track actions (sample every 10 frames)
+                if frame_count % 10 == 0:
+                    action_counts[ai_action.name] += 1
+                frame_count += 1
+                
                 engine.step(ai_action, expert_action)
             
             # Game ended
@@ -125,7 +140,12 @@ class AIEvaluator:
             print("GAME OVER")
             print("="*80)
             print(f"Learning AI Score: {engine.score_a}")
-            print(f"Expert AI Score: {engine.score_b}")
+            print(f"Expert AI Score:   {engine.score_b}")
+            print(f"\n📊 AI Action Distribution (sampled):")
+            total_actions = sum(action_counts.values())
+            for action, count in action_counts.items():
+                pct = (count / total_actions * 100) if total_actions > 0 else 0
+                print(f"  {action:5s}: {count:4d} ({pct:5.1f}%)")
             
             if engine.score_a > engine.score_b:
                 print("\n🎉 LEARNING AI WINS! 🎉")
@@ -134,7 +154,7 @@ class AIEvaluator:
             elif engine.score_b > engine.score_a:
                 print("\n❌ Expert AI wins")
                 margin = engine.score_b - engine.score_a
-                print(f"   AI lost by {margin} point{'s' if margin != 1 else ''}")
+                print(f"   Learning AI lost by {margin} point{'s' if margin != 1 else ''}")
             else:
                 print("\n🤝 TIE GAME!")
             
@@ -219,18 +239,22 @@ class AIEvaluator:
         
         # Print results
         print("\n\n" + "="*80)
-        print("BENCHMARK RESULTS")
+        print("BENCHMARK RESULTS - LEARNING AI vs EXPERT AI")
         print("="*80)
         print(f"Total Games: {num_games}")
         print(f"Time Elapsed: {elapsed:.1f} seconds ({elapsed/num_games:.2f}s per game)")
-        print(f"\nResults:")
+        print(f"\n📊 Learning AI Results:")
         print(f"  Wins:   {wins:4d} ({wins/num_games*100:5.1f}%)")
         print(f"  Losses: {losses:4d} ({losses/num_games*100:5.1f}%)")
         print(f"  Ties:   {ties:4d} ({ties/num_games*100:5.1f}%)")
-        print(f"\nAverage Scores:")
-        print(f"  AI:     {total_ai_score/num_games:.2f} points/game")
-        print(f"  Expert: {total_expert_score/num_games:.2f} points/game")
-        print(f"  Margin: {(total_ai_score - total_expert_score)/num_games:+.2f} points/game")
+        print(f"\nAverage Scores Per Game:")
+        print(f"  Learning AI: {total_ai_score/num_games:.2f} points")
+        print(f"  Expert AI:   {total_expert_score/num_games:.2f} points")
+        print(f"  AI Margin:   {(total_ai_score - total_expert_score)/num_games:+.2f} points")
+        print(f"\n📈 Expected Performance:")
+        print(f"  Untrained AI:   ~0-2 points/game, ~0% wins")
+        print(f"  After Phase 1:  ~4-7 points/game, ~40% wins")
+        print(f"  After Phase 2:  ~6-8 points/game, ~50-60% wins")
         print("="*80 + "\n")
 
 

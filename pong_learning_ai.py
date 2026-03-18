@@ -114,6 +114,7 @@ class LearningAI:
         self.total_rewards = 0
         self.win_count = 0
         self.loss_count = 0
+        self.tie_count = 0  # Track ties separately
         
         # For tracking learning progress
         self.reward_history = []
@@ -276,10 +277,13 @@ class LearningAI:
         """
         self.games_played += 1
         
+        # Track wins, losses, and ties separately
         if final_score_self > final_score_opponent:
             self.win_count += 1
-        else:
+        elif final_score_self < final_score_opponent:
             self.loss_count += 1
+        else:
+            self.tie_count += 1
         
         # Decay epsilon (reduce exploration over time)
         if self.epsilon > self.epsilon_min:
@@ -303,6 +307,7 @@ class LearningAI:
             'games_played': self.games_played,
             'win_count': self.win_count,
             'loss_count': self.loss_count,
+            'tie_count': self.tie_count,
             'epsilon': self.epsilon
         }
         
@@ -325,6 +330,7 @@ class LearningAI:
         self.games_played = data['games_played']
         self.win_count = data['win_count']
         self.loss_count = data['loss_count']
+        self.tie_count = data.get('tie_count', 0)  # Default to 0 for old models
         self.epsilon = data.get('epsilon', 0.1)
         
         # Update target network
@@ -335,12 +341,17 @@ class LearningAI:
     def get_stats(self):
         """Get training statistics"""
         win_rate = self.win_count / self.games_played if self.games_played > 0 else 0
+        loss_rate = self.loss_count / self.games_played if self.games_played > 0 else 0
+        tie_rate = self.tie_count / self.games_played if self.games_played > 0 else 0
         
         return {
             'games_played': self.games_played,
             'wins': self.win_count,
             'losses': self.loss_count,
+            'ties': self.tie_count,
             'win_rate': win_rate,
+            'loss_rate': loss_rate,
+            'tie_rate': tie_rate,
             'epsilon': self.epsilon,
             'exploration': f"{self.epsilon * 100:.1f}%"
         }
