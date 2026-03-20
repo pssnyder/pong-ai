@@ -9,8 +9,13 @@ Features:
 - Compare across different physics settings
 """
 
-import os
 import sys
+from pathlib import Path
+
+# Add parent directory to path for imports
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+import os
 import time
 from pong_engine import PongEngine
 from pong_expert_ai import PhysicsExpertAI
@@ -102,7 +107,7 @@ class AIEvaluator:
             enable_curve=phase_config['curve'],
             ball_speed=1.0,
             paddle_speed=25,
-            frame_rate=60,  # Slower for watching
+            frame_rate=30,  # 30 FPS for comfortable viewing
             difficulty_level=1,
             auto_progress=phase_config['progressive'],
             points_per_level=5
@@ -116,6 +121,9 @@ class AIEvaluator:
         print("\n💡 TIP: If paddle doesn't move, AI hasn't learned yet!")
         print("   (Needs ~100-200 training games to start learning)")
         print("\nClose window to exit\n")
+        
+        # Reset engine for clean start
+        engine.reset()
         
         # Track actions for debugging
         action_counts = {'UP': 0, 'DOWN': 0, 'STAY': 0}
@@ -210,6 +218,9 @@ class AIEvaluator:
                 auto_progress=phase_config['progressive'],
                 points_per_level=5
             )
+            
+            # Reset for clean start
+            engine.reset()
             
             # Play game
             while not engine.game_over:

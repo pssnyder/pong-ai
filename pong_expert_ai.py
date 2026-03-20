@@ -144,8 +144,12 @@ class PhysicsExpertAI:
             ball_moving_away = (self.side == 'A' and ball_dx > 0) or (self.side == 'B' and ball_dx < 0)
             
             if ball_moving_away:
-                # Drift smoothly toward center to prepare for return
-                self.cached_target_y = 0  # Center position
+                # When ball moves away, slowly return to center
+                # But STOP when already near center to avoid jitter
+                if abs(paddle_y) < 10:  # Already at center
+                    self.cached_target_y = paddle_y  # Stay put
+                else:
+                    self.cached_target_y = 0  # Move to center
             else:
                 # Ball approaching - calculate perfect intercept
                 self.cached_target_y = self._calculate_perfect_intercept(
@@ -230,8 +234,11 @@ class PhysicsExpertAI:
         error = target_y - current_y
         
         # Dead zone - close enough, stop moving
-        if abs(error) < 5:
-            self.current_velocity *= 0.8  # Gentle deceleration
+        # Larger dead zone when at center to prevent jitter
+        dead_zone_threshold = 15 if abs(target_y) < 10 else 5
+        
+        if abs(error) < dead_zone_threshold:
+            self.current_velocity *= 0.5  # Quick deceleration
             self.integral_error = 0  # Reset integral when at target
             
             if abs(self.current_velocity) < 0.5:

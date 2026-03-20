@@ -3,6 +3,12 @@ Training Script: Learning AI vs Physics Expert
 Watch the neural network learn to beat the expert system!
 """
 
+import sys
+from pathlib import Path
+
+# Add parent directory to path for imports
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
 from pong_engine import PongEngine, Action
 from pong_expert_ai import create_physics_expert, PhysicsExpertAI
 from pong_learning_ai import LearningAI
@@ -57,7 +63,7 @@ def visual_training(games=100, max_points=5, save_every=25, enable_spin=True, en
         if learning_ai.load(model_path):
             print(f"✅ Loaded existing model from: {model_path}")
             stats = learning_ai.get_stats()
-            print(f"   Resuming from: {stats['games_played']} games, {stats['win_rate']*100:.1f}% win rate")
+            print(f"   Resuming from: {stats['games_played']} games, {stats['win_rate']*100:.1f}% Learning AI win rate")
             print()
     else:
         print("🆕 Starting fresh training - new neural network created")
@@ -133,8 +139,8 @@ def visual_training(games=100, max_points=5, save_every=25, enable_spin=True, en
             
             # Show progress stats
             stats = learning_ai.get_stats()
-            print(f"\n  📈 Progress:")
-            print(f"     Win Rate: {stats['win_rate']*100:.1f}% ({stats['wins']}W-{stats['losses']}L)")
+            print(f"\n  📈 Learning AI Progress:")
+            print(f"     Win Rate: {stats['win_rate']*100:.1f}% ({stats['wins']}W-{stats['losses']}L vs Expert)")
             print(f"     Exploration: {stats['exploration']} (randomness)")
             print(f"     Total Games: {stats['games_played']}")
             
@@ -160,10 +166,10 @@ def visual_training(games=100, max_points=5, save_every=25, enable_spin=True, en
     print("=" * 75)
     
     stats = learning_ai.get_stats()
-    print(f"\n📊 Final Statistics:")
+    print(f"\n📊 Final Learning AI Statistics (vs Physics Expert):")
     print(f"   Total Games: {stats['games_played']}")
-    print(f"   Win Rate: {stats['win_rate']*100:.1f}%")
-    print(f"   Record: {stats['wins']}W - {stats['losses']}L")
+    print(f"   Learning AI Win Rate: {stats['win_rate']*100:.1f}%")
+    print(f"   Record: {stats['wins']}W - {stats['losses']}L - {stats['ties']}T")
     print(f"   Final Exploration: {stats['exploration']}")
     print(f"\n💾 Model saved to: {model_path}")
     print("=" * 75)
@@ -190,7 +196,8 @@ def fast_training(games=1000, max_points=5, save_every=100):
     model_path = 'models/pong_learning_ai.pkl'
     if os.path.exists(model_path):
         learning_ai.load(model_path)
-        print(f"✅ Loaded existing model")
+        stats = learning_ai.get_stats()
+        print(f"✅ Loaded existing model ({stats['games_played']} games, {stats['win_rate']*100:.1f}% Learning AI win rate)")
     
     start_time = time.time()
     
@@ -224,7 +231,7 @@ def fast_training(games=1000, max_points=5, save_every=100):
                 stats = learning_ai.get_stats()
                 elapsed = time.time() - start_time
                 games_per_sec = game_num / elapsed
-                print(f"Game {game_num}/{games} | Win Rate: {stats['win_rate']*100:.1f}% | "
+                print(f"Game {game_num}/{games} | Learning AI Win Rate: {stats['win_rate']*100:.1f}% | "
                       f"Explore: {stats['exploration']} | Speed: {games_per_sec:.1f} games/sec")
             
             # Save periodically
@@ -245,7 +252,8 @@ def fast_training(games=1000, max_points=5, save_every=100):
     print("\n" + "=" * 75)
     print("⚡ FAST TRAINING COMPLETE!")
     print("=" * 75)
-    print(f"Games: {stats['games_played']} | Win Rate: {stats['win_rate']*100:.1f}%")
+    print(f"Games: {stats['games_played']} | Learning AI Win Rate: {stats['win_rate']*100:.1f}% (vs Expert)")
+    print(f"Record: {stats['wins']}W-{stats['losses']}L-{stats['ties']}T")
     print(f"Total Time: {elapsed:.1f}s | Speed: {stats['games_played']/elapsed:.1f} games/sec")
     print("=" * 75)
 

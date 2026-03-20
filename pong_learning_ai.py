@@ -248,7 +248,7 @@ class LearningAI:
         return total_loss / self.batch_size
     
     def _simple_update(self, state, target):
-        """Simplified weight update using gradient descent"""
+        """Simplified weight update using gradient descent with gradient clipping"""
         # Forward pass
         X = state.reshape(1, -1)
         output = self.network.forward(X)
@@ -256,16 +256,37 @@ class LearningAI:
         # Output layer gradient
         d_output = 2 * (output - target.reshape(1, -1))
         
-        # Update output layer
-        self.network.W2 -= self.learning_rate * (self.network.a1.T @ d_output)
-        self.network.b2 -= self.learning_rate * d_output
+        # Clip gradients to prevent explosion (gradient clipping)
+        max_grad = 10.0
+        d_output = np.clip(d_output, -max_grad, max_grad)
         
         # Hidden layer gradient
         d_hidden = (d_output @ self.network.W2.T) * (self.network.a1 > 0)
+        d_hidden = np.clip(d_hidden, -max_grad, max_grad)
         
-        # Update hidden layer
-        self.network.W1 -= self.learning_rate * (X.T @ d_hidden)
-        self.network.b1 -= self.learning_rate * d_hidden
+        # Calculate weight gradients
+        grad_W2 = self.network.a1.T @ d_output
+        grad_b2 = d_output
+        grad_W1 = X.T @ d_hidden
+        grad_b1 = d_hidden
+        
+        # Clip weight gradients
+        grad_W2 = np.clip(grad_W2, -max_grad, max_grad)
+        grad_W1 = np.clip(grad_W1, -max_grad, max_grad)
+        
+        # Update weights
+        self.network.W2 -= self.learning_rate * grad_W2
+        self.network.b2 -= self.learning_rate * grad_b2
+        self.network.W1 -= self.learning_rate * grad_W1
+        self.network.b1 -= self.learning_rate * grad_b1
+        
+        # Check for NaN/Inf and reset if necessary
+        if np.any(np.isnan(self.network.W1)) or np.any(np.isinf(self.network.W1)):
+            print("⚠️ NaN/Inf detected in W1, resetting weights...")
+            self.network.W1 = np.random.randn(self.network.input_size, self.network.hidden_size) * np.sqrt(2.0 / self.network.input_size)
+        if np.any(np.isnan(self.network.W2)) or np.any(np.isinf(self.network.W2)):
+            print("⚠️ NaN/Inf detected in W2, resetting weights...")
+            self.network.W2 = np.random.randn(self.network.hidden_size, self.network.output_size) * np.sqrt(2.0 / self.network.hidden_size)
     
     def end_game(self, final_score_self, final_score_opponent):
         """

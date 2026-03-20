@@ -1,7 +1,13 @@
-"""
+""" 
 Demo: Watch the Physics Expert AI in action!
 This script lets you see the expert system play with perfect physics prediction
 """
+
+import sys
+from pathlib import Path
+
+# Add parent directory to path for imports
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from pong_engine import PongEngine, Action
 from pong_expert_ai import create_physics_expert, PhysicsExpertAI

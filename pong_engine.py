@@ -184,7 +184,7 @@ class PongEngine:
     
     def __init__(self, width=800, height=600, ball_speed=1.0, paddle_speed=25, 
                  visible=True, enable_spin=True, enable_curve=True, frame_rate=200,
-                 difficulty_level=1, auto_progress=False, points_per_level=5, winning_score=11):
+                 difficulty_level=None, auto_progress=False, points_per_level=5, winning_score=11):
         """
         Initialize Pong game engine
         
@@ -212,15 +212,20 @@ class PongEngine:
         self.frame_rate = frame_rate
         self.frame_time = 1.0 / frame_rate  # Time per frame in seconds
         
-        # Progressive difficulty system
-        self.difficulty = DifficultyLevel(difficulty_level)
-        self.auto_progress = auto_progress
+        # Progressive difficulty system (optional - for tournament mode only)
+        self.difficulty_enabled = difficulty_level is not None
+        self.difficulty = DifficultyLevel(difficulty_level if difficulty_level else 1)
+        self.auto_progress = auto_progress and self.difficulty_enabled  # Only auto-progress if difficulty enabled
         self.points_per_level = points_per_level
         self.points_at_last_level = 0
         
-        # Apply difficulty scaling
-        self.ball_speed = self.difficulty.get_max_ball_speed(self.base_ball_speed)
-        self.paddle_speed = self.difficulty.get_paddle_speed(self.base_paddle_speed)
+        # Ball and paddle speeds (difficulty scaling only if enabled)
+        if self.difficulty_enabled:
+            self.ball_speed = self.difficulty.get_max_ball_speed(self.base_ball_speed)
+            self.paddle_speed = self.difficulty.get_paddle_speed(self.base_paddle_speed)
+        else:
+            self.ball_speed = self.base_ball_speed
+            self.paddle_speed = self.base_paddle_speed
         
         # Game state
         self.score_a = 0
@@ -470,8 +475,8 @@ class PongEngine:
         self.game_over = False
         self.frame_count = 0
         
-        # Reset difficulty if not auto-progressing
-        if not self.auto_progress:
+        # Reset difficulty if not auto-progressing (and if difficulty enabled)
+        if not self.auto_progress and self.difficulty_enabled:
             self.difficulty = DifficultyLevel(1)
             self.paddle_speed = self.difficulty.get_paddle_speed(self.base_paddle_speed)
             self.ball_speed = self.difficulty.get_max_ball_speed(self.base_ball_speed)
@@ -481,7 +486,7 @@ class PongEngine:
         # Reset ball position and velocity
         if self.visible:
             self.ball.goto(0, 0)
-            self.ball.dx = self.ball_speed
+            self.ball.dx = self.ball_speed  # Serve to right (paddle B)
             self.ball.dy = self.ball_speed
             self.ball.spin = 0.0
             
@@ -497,7 +502,7 @@ class PongEngine:
         else:
             self.ball_x = 0
             self.ball_y = 0
-            self.ball_dx = self.ball_speed
+            self.ball_dx = self.ball_speed  # Serve to right (paddle B)
             self.ball_dy = self.ball_speed
             self.ball_spin = 0.0
             
@@ -548,12 +553,13 @@ class PongEngine:
         if self.visible:
             self.win.update()
             self._update_physics_display()
-            time.sleep(0.005)
+            # Sleep to match target frame rate
+            time.sleep(self.frame_time)
         
         return self.get_state(), reward_a, reward_b, self.game_over
     
     def _move_paddle(self, paddle, action):
-        """Move a paddle based on action, difficulty, and paddle mass/inertia"""
+        """Move a paddle based on action (with optional difficulty/mass system)"""
         if action == Action.STAY:
             if paddle == 'A':
                 self.padA_velocity = 0
@@ -561,33 +567,50 @@ class PongEngine:
                 self.padB_velocity = 0
             return
         
-        # Apply difficulty-based paddle speed reduction
+        # SIMPLE MODE (default): Direct movement per frame
+        if not self.difficulty_enabled:
+            movement = self.paddle_speed * action.value
+            
+            if self.visible:
+                paddle_obj = self.padA if paddle == 'A' else self.padB
+                old_y = paddle_obj.ycor()
+                new_y = old_y + movement
+                new_y = max(-230, min(230, new_y))
+                paddle_obj.sety(new_y)
+                
+                # Track velocity for spin calculation
+                actual_movement = new_y - old_y
+                velocity = actual_movement / self.frame_time if self.frame_time > 0 else 0
+                if paddle == 'A':
+                    self.padA_velocity = velocity
+                else:
+                    self.padB_velocity = velocity
+            else:
+                if paddle == 'A':
+                    old_y = self.padA_y
+                    self.padA_y += movement
+                    self.padA_y = max(-230, min(230, self.padA_y))
+                    self.padA_velocity = (self.padA_y - old_y) / self.frame_time if self.frame_time > 0 else 0
+                else:
+                    old_y = self.padB_y
+                    self.padB_y += movement
+                    self.padB_y = max(-230, min(230, self.padB_y))
+                    self.padB_velocity = (self.padB_y - old_y) / self.frame_time if self.frame_time > 0 else 0
+            return
+        
+        # TOURNAMENT MODE: Advanced physics with mass/inertia
         effective_paddle_speed = self.paddle_speed * self.difficulty.paddle_speed_multiplier
-        
-        # Base acceleration (can be tuned for responsiveness)
-        base_acceleration = 50.0  # Base acceleration rate
-        
-        # Calculate maximum acceleration based on difficulty
+        base_acceleration = 50.0
         max_acceleration = self.difficulty.get_paddle_acceleration(base_acceleration)
         
-        # Get current velocity and mass
         current_velocity = self.padA_velocity if paddle == 'A' else self.padB_velocity
         paddle_mass = self.difficulty.paddle_mass
         
-        # Desired movement based on action
         desired_velocity = effective_paddle_speed * action.value
-        
-        # Apply mass-based inertia (heavier paddles accelerate slower)
-        # acceleration = (desired_velocity - current_velocity) / mass
         velocity_change = (desired_velocity - current_velocity) / paddle_mass
-        
-        # Clamp acceleration to difficulty limit
         velocity_change = max(-max_acceleration, min(max_acceleration, velocity_change))
-        
-        # Update velocity with mass-dampened acceleration
         new_velocity = current_velocity + velocity_change
         
-        # Movement for this frame (velocity is in pixels/second, convert to pixels/frame)
         movement = (new_velocity * self.frame_time) if self.frame_time > 0 else 0
         
         if self.visible:
@@ -662,14 +685,16 @@ class PongEngine:
             # Right boundary (Paddle A scores)
             if new_x > 390:
                 self.ball.goto(0, 0)
-                self.ball.dx = self.ball_speed
+                self.ball.dx = -self.ball_speed  # Serve to B (left)
                 self.ball.dy = self.ball_speed
                 self.ball.spin = 0
                 self.score_a += 1
                 reward_a = 1
                 reward_b = -1
                 self._update_score()
-                self._check_difficulty_progression()  # Check for level up
+                
+                if self.difficulty_enabled:
+                    self._check_difficulty_progression()  # Check for level up
                 
                 # Reset volley tracking
                 self.current_volley_count = 0
@@ -682,14 +707,16 @@ class PongEngine:
             # Left boundary (Paddle B scores)
             elif new_x < -390:
                 self.ball.goto(0, 0)
-                self.ball.dx = self.ball_speed
+                self.ball.dx = self.ball_speed  # Serve to A (right)
                 self.ball.dy = self.ball_speed
                 self.ball.spin = 0
                 self.score_b += 1
                 reward_a = -1
                 reward_b = 1
                 self._update_score()
-                self._check_difficulty_progression()  # Check for level up
+                
+                if self.difficulty_enabled:
+                    self._check_difficulty_progression()  # Check for level up
                 
                 # Reset volley tracking
                 self.current_volley_count = 0
@@ -712,15 +739,16 @@ class PongEngine:
                     ball_dx, ball_dy, self.padB_velocity, impact_offset
                 )
                 
-                # Apply per-hit ball acceleration within volley
-                self.current_volley_count += 1
-                current_ball_speed = math.sqrt(ball_dx**2 + ball_dy**2)
-                new_ball_speed = self.difficulty.get_ball_speed_after_hit(
-                    self.volley_base_speed, self.current_volley_count
-                )
-                speed_ratio = new_ball_speed / current_ball_speed if current_ball_speed > 0 else 1.0
-                ball_dx *= speed_ratio
-                ball_dy *= speed_ratio
+                # Apply per-hit ball acceleration within volley (tournament mode only)
+                if self.difficulty_enabled:
+                    self.current_volley_count += 1
+                    current_ball_speed = math.sqrt(ball_dx**2 + ball_dy**2)
+                    new_ball_speed = self.difficulty.get_ball_speed_after_hit(
+                        self.volley_base_speed, self.current_volley_count
+                    )
+                    speed_ratio = new_ball_speed / current_ball_speed if current_ball_speed > 0 else 1.0
+                    ball_dx *= speed_ratio
+                    ball_dy *= speed_ratio
                 
                 # Apply spin ONLY from paddle velocity (not impact position)
                 # Off-center hits affect angle via ball_dy calculation, not spin
@@ -747,15 +775,16 @@ class PongEngine:
                     ball_dx, ball_dy, self.padA_velocity, impact_offset
                 )
                 
-                # Apply per-hit ball acceleration within volley
-                self.current_volley_count += 1
-                current_ball_speed = math.sqrt(ball_dx**2 + ball_dy**2)
-                new_ball_speed = self.difficulty.get_ball_speed_after_hit(
-                    self.volley_base_speed, self.current_volley_count
-                )
-                speed_ratio = new_ball_speed / current_ball_speed if current_ball_speed > 0 else 1.0
-                ball_dx *= speed_ratio
-                ball_dy *= speed_ratio
+                # Apply per-hit ball acceleration within volley (tournament mode only)
+                if self.difficulty_enabled:
+                    self.current_volley_count += 1
+                    current_ball_speed = math.sqrt(ball_dx**2 + ball_dy**2)
+                    new_ball_speed = self.difficulty.get_ball_speed_after_hit(
+                        self.volley_base_speed, self.current_volley_count
+                    )
+                    speed_ratio = new_ball_speed / current_ball_speed if current_ball_speed > 0 else 1.0
+                    ball_dx *= speed_ratio
+                    ball_dy *= speed_ratio
                 
                 # Apply spin ONLY from paddle velocity (not impact position)
                 if self.enable_spin:
@@ -798,13 +827,15 @@ class PongEngine:
             if self.ball_x > 390:
                 self.ball_x = 0
                 self.ball_y = 0
-                self.ball_dx = self.ball_speed
+                self.ball_dx = -self.ball_speed  # Serve to B (left)
                 self.ball_dy = self.ball_speed
                 self.ball_spin = 0
                 self.score_a += 1
                 reward_a = 1
                 reward_b = -1
-                self._check_difficulty_progression()
+                
+                if self.difficulty_enabled:
+                    self._check_difficulty_progression()
                 
                 # Reset volley tracking
                 self.current_volley_count = 0
@@ -817,13 +848,15 @@ class PongEngine:
             elif self.ball_x < -390:
                 self.ball_x = 0
                 self.ball_y = 0
-                self.ball_dx = self.ball_speed
+                self.ball_dx = self.ball_speed  # Serve to A (right)
                 self.ball_dy = self.ball_speed
                 self.ball_spin = 0
                 self.score_b += 1
                 reward_a = -1
                 reward_b = 1
-                self._check_difficulty_progression()
+                
+                if self.difficulty_enabled:
+                    self._check_difficulty_progression()
                 
                 # Reset volley tracking
                 self.current_volley_count = 0
@@ -846,15 +879,16 @@ class PongEngine:
                     self.ball_dx, self.ball_dy, self.padB_velocity, impact_offset
                 )
                 
-                # Apply per-hit ball acceleration within volley
-                self.current_volley_count += 1
-                current_ball_speed = math.sqrt(self.ball_dx**2 + self.ball_dy**2)
-                new_ball_speed = self.difficulty.get_ball_speed_after_hit(
-                    self.volley_base_speed, self.current_volley_count
-                )
-                speed_ratio = new_ball_speed / current_ball_speed if current_ball_speed > 0 else 1.0
-                self.ball_dx *= speed_ratio
-                self.ball_dy *= speed_ratio
+                # Apply per-hit ball acceleration within volley (tournament mode only)
+                if self.difficulty_enabled:
+                    self.current_volley_count += 1
+                    current_ball_speed = math.sqrt(self.ball_dx**2 + self.ball_dy**2)
+                    new_ball_speed = self.difficulty.get_ball_speed_after_hit(
+                        self.volley_base_speed, self.current_volley_count
+                    )
+                    speed_ratio = new_ball_speed / current_ball_speed if current_ball_speed > 0 else 1.0
+                    self.ball_dx *= speed_ratio
+                    self.ball_dy *= speed_ratio
                 
                 # Spin ONLY from paddle velocity
                 if self.enable_spin:
@@ -875,15 +909,16 @@ class PongEngine:
                     self.ball_dx, self.ball_dy, self.padA_velocity, impact_offset
                 )
                 
-                # Apply per-hit ball acceleration within volley
-                self.current_volley_count += 1
-                current_ball_speed = math.sqrt(self.ball_dx**2 + self.ball_dy**2)
-                new_ball_speed = self.difficulty.get_ball_speed_after_hit(
-                    self.volley_base_speed, self.current_volley_count
-                )
-                speed_ratio = new_ball_speed / current_ball_speed if current_ball_speed > 0 else 1.0
-                self.ball_dx *= speed_ratio
-                self.ball_dy *= speed_ratio
+                # Apply per-hit ball acceleration within volley (tournament mode only)
+                if self.difficulty_enabled:
+                    self.current_volley_count += 1
+                    current_ball_speed = math.sqrt(self.ball_dx**2 + self.ball_dy**2)
+                    new_ball_speed = self.difficulty.get_ball_speed_after_hit(
+                        self.volley_base_speed, self.current_volley_count
+                    )
+                    speed_ratio = new_ball_speed / current_ball_speed if current_ball_speed > 0 else 1.0
+                    self.ball_dx *= speed_ratio
+                    self.ball_dy *= speed_ratio
                 
                 # Spin ONLY from paddle velocity
                 if self.enable_spin:
@@ -1002,6 +1037,9 @@ class PongEngine:
     
     def _increase_difficulty(self):
         """Increase difficulty level and update game parameters"""
+        if not self.difficulty_enabled:
+            return
+        
         old_level = self.difficulty.level
         self.difficulty = DifficultyLevel(old_level + 1)
         
@@ -1016,9 +1054,14 @@ class PongEngine:
     
     def set_difficulty(self, level):
         """Manually set difficulty level"""
+        if not self.difficulty_enabled:
+            print("⚠️ Cannot set difficulty - difficulty system is disabled")
+            return
+        
         self.difficulty = DifficultyLevel(level)
         self.paddle_speed = self.difficulty.get_paddle_speed(self.base_paddle_speed)
         self.ball_speed = self.difficulty.get_max_ball_speed(self.base_ball_speed)
+        self.auto_progress = False  # Disable auto-progression when manually setting
         print(f"Difficulty set to: {self.difficulty}")
     
     def _calculate_impact_ball_speed(self, current_speed_x, current_speed_y, paddle_velocity, impact_offset):

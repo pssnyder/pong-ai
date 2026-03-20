@@ -3,6 +3,12 @@ Diagnostic Script - Check Learning AI Model and Test Scoring
 Helps debug issues with trained models and game scoring
 """
 
+import sys
+from pathlib import Path
+
+# Add parent directory to path for imports
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
 import os
 import pickle
 import numpy as np

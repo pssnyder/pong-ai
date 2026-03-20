@@ -23,6 +23,12 @@ Phase 3: Progressive Speed
 Future: Can reduce paddle speed to 80% for additional challenge
 """
 
+import sys
+from pathlib import Path
+
+# Add parent directory to path for imports
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
 import os
 import time
 import json
@@ -90,7 +96,7 @@ class ProgressiveTrainer:
             recent_win_rate = (recent_wins / 10) * 100
         
         print(f"\r[{phase}] Progress: {games_completed}/{target_games} ({progress_pct:.1f}%) | "
-              f"Win Rate: {win_rate:.1f}% (Recent: {recent_win_rate:.0f}%) | "
+              f"Learning AI WR: {win_rate:.1f}% (Recent: {recent_win_rate:.0f}%) | "
               f"Epsilon: {ai_stats['exploration']} | "
               f"Time: {time_elapsed:.0f}s", end='', flush=True)
     
@@ -206,7 +212,7 @@ class ProgressiveTrainer:
                     stats = ai.get_stats()
                     result = "WIN" if engine.score_a > engine.score_b else ("LOSS" if engine.score_b > engine.score_a else "TIE")
                     print(f"\nGame {ai.games_played}: AI {engine.score_a}-{engine.score_b} Expert [{result}] | "
-                          f"Overall: W:{stats['wins']} L:{stats['losses']} T:{stats['ties']} ({stats['win_rate']*100:.1f}% WR)")
+                          f"Overall: W:{stats['wins']} L:{stats['losses']} T:{stats['ties']} ({stats['win_rate']*100:.1f}% AI WR)")
                 
                 # Update progress (in-place for other games)
                 games_completed = ai.games_played - start_game
@@ -242,9 +248,10 @@ class ProgressiveTrainer:
             self.save_history()
             
             # Print final stats
-            print(f"\nFinal Statistics:")
+            print(f"\nFinal Statistics (Learning AI vs Expert):")
             print(f"  Total Games: {ai.games_played}")
-            print(f"  Win Rate: {stats['win_rate']*100:.1f}%")
+            print(f"  Learning AI Win Rate: {stats['win_rate']*100:.1f}%")
+            print(f"  Record: {stats['wins']}W-{stats['losses']}L-{stats['ties']}T")
             print(f"  Final Epsilon: {stats['epsilon']:.3f}")
             print(f"\nModel saved to: {final_model}")
             print("\nReady for Phase 2: Spin Physics Training")
@@ -387,9 +394,10 @@ class ProgressiveTrainer:
             }
             self.save_history()
             
-            print(f"\nFinal Statistics:")
+            print(f"\nFinal Statistics (Learning AI vs Expert):")
             print(f"  Total Games: {ai.games_played}")
-            print(f"  Win Rate: {stats['win_rate']*100:.1f}%")
+            print(f"  Learning AI Win Rate: {stats['win_rate']*100:.1f}%")
+            print(f"  Record: {stats['wins']}W-{stats['losses']}L-{stats['ties']}T")
             print(f"  Phase 2 Games: {games}")
             print(f"\nModel saved to: {final_model}")
             print("\nReady for Phase 3: Progressive Speed Training")
@@ -541,9 +549,10 @@ class ProgressiveTrainer:
             }
             self.save_history()
             
-            print(f"\nFinal Statistics:")
+            print(f"\nFinal Statistics (Learning AI vs Expert):")
             print(f"  Total Games: {ai.games_played}")
-            print(f"  Overall Win Rate: {stats['win_rate']*100:.1f}%")
+            print(f"  Learning AI Win Rate: {stats['win_rate']*100:.1f}%")
+            print(f"  Record: {stats['wins']}W-{stats['losses']}L-{stats['ties']}T")
             print(f"  Phase 3 Games: {games}")
             print(f"\nMaster model saved to: {final_model}")
             print("\nNext Steps:")

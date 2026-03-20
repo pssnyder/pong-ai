@@ -3,8 +3,14 @@ Test and visualize the tournament difficulty system
 Shows how ball speed, paddle speed, and physics change across levels 1-10
 """
 
-from pong_engine import DifficultyLevel
+import sys
+from pathlib import Path
 import math
+
+# Add parent directory to path for imports
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from pong_engine import DifficultyLevel
 
 def test_difficulty_levels():
     """Test and display all difficulty levels"""
