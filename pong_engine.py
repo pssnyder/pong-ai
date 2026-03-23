@@ -693,6 +693,13 @@ class PongEngine:
                 reward_b = -1
                 self._update_score()
                 
+                # Update local variables to match reset state (prevents double-counting bug)
+                new_x = 0
+                new_y = 0
+                ball_dx = -self.ball_speed
+                ball_dy = self.ball_speed
+                ball_spin = 0
+                
                 if self.difficulty_enabled:
                     self._check_difficulty_progression()  # Check for level up
                 
@@ -714,6 +721,13 @@ class PongEngine:
                 reward_a = -1
                 reward_b = 1
                 self._update_score()
+                
+                # Update local variables to match reset state (prevents double-counting bug)
+                new_x = 0
+                new_y = 0
+                ball_dx = self.ball_speed
+                ball_dy = self.ball_speed
+                ball_spin = 0
                 
                 if self.difficulty_enabled:
                     self._check_difficulty_progression()  # Check for level up

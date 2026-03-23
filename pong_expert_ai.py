@@ -8,6 +8,133 @@ from pong_engine import Action
 import math
 
 
+# ============================================================================
+#                    EXPERT AI PADDLE CONTROL CONFIGURATION
+# ============================================================================
+# Configure physics expert behavior here for easy tuning
+
+class ExpertControlConfig:
+    """
+    Configuration for Physics Expert AI paddle control and behavior
+    
+    Tuning Guide:
+    - Adjust paddle_speed_multiplier to handicap the expert (0.7-1.0)
+    - Increase reaction_frames to add response delay (0-5)
+    - Adjust calculation_interval to control recalculation frequency
+    - Tune freeze distances to control pre/post-impact behavior
+    - Adjust PID parameters to control movement smoothness:
+        * Higher kp = stronger response
+        * Higher ki = corrects persistent errors
+        * Higher kd = dampens oscillations
+    """
+    
+    def __init__(self,
+                 # Speed and Response Parameters
+                 paddle_speed_multiplier=0.9,   # Speed handicap (0.7-1.0, lower = slower)
+                 reaction_frames=0,             # Frames of delay before reacting (0-5)
+                 
+                 # Calculation Frequency
+                 calculation_interval=4,        # Recalculate target every N frames
+                 
+                 # Freeze Zone Parameters (prevents spin generation)
+                 freeze_distance_before=150,    # Freeze when ball this close (approaching)
+                 freeze_distance_after=100,     # Stay frozen until ball this far (moving away)
+                 
+                 # Paddle Physics Parameters
+                 max_velocity=50.0,             # Maximum paddle velocity
+                 acceleration=5.0,              # Paddle acceleration rate
+                 
+                 # PID Controller Parameters
+                 kp=0.35,                       # Proportional gain
+                 ki=0.005,                      # Integral gain
+                 kd=0.25,                       # Derivative gain
+                 
+                 # Dead Zone Parameters
+                 dead_zone_threshold=15.0,      # Stop if within this distance
+                 center_dead_zone_threshold=5.0, # Smaller dead zone at center
+                 
+                 # Action Threshold
+                 action_threshold_multiplier=0.3  # Fraction of max speed for action
+                ):
+        
+        self.paddle_speed_multiplier = paddle_speed_multiplier
+        self.reaction_frames = reaction_frames
+        
+        self.calculation_interval = calculation_interval
+        
+        self.freeze_distance_before = freeze_distance_before
+        self.freeze_distance_after = freeze_distance_after
+        
+        self.max_velocity = max_velocity
+        self.acceleration = acceleration
+        
+        self.kp = kp
+        self.ki = ki
+        self.kd = kd
+        
+        self.dead_zone_threshold = dead_zone_threshold
+        self.center_dead_zone_threshold = center_dead_zone_threshold
+        self.action_threshold_multiplier = action_threshold_multiplier
+        
+        self.max_integral = 100.0  # Prevent integral windup
+
+
+# ============================================================================
+#                    EXPERT AI DIFFICULTY PRESETS
+# ============================================================================
+# Pre-configured difficulty profiles
+
+class ExpertPresets:
+    """Pre-configured expert AI difficulty profiles"""
+    
+    @staticmethod
+    def perfect():
+        """Nearly unbeatable - perfect physics prediction"""
+        return ExpertControlConfig(
+            paddle_speed_multiplier=1.0,
+            reaction_frames=0,
+            calculation_interval=2,
+            kp=0.4,
+            kd=0.3
+        )
+    
+    @staticmethod
+    def hard():
+        """Very challenging but beatable"""
+        return ExpertControlConfig(
+            paddle_speed_multiplier=0.95,
+            reaction_frames=1,
+            calculation_interval=4,
+            kp=0.35,
+            kd=0.25
+        )
+    
+    @staticmethod
+    def medium():
+        """Balanced difficulty - good training opponent"""
+        return ExpertControlConfig(
+            paddle_speed_multiplier=0.90,
+            reaction_frames=2,
+            calculation_interval=4,
+            kp=0.35,
+            kd=0.25
+        )
+    
+    @staticmethod
+    def easy():
+        """Easier opponent - good for early training"""
+        return ExpertControlConfig(
+            paddle_speed_multiplier=0.75,
+            reaction_frames=3,
+            calculation_interval=6,
+            kp=0.3,
+            kd=0.2
+        )
+
+
+# ============================================================================
+
+
 class PhysicsExpertAI:
     """
     Physics-perfect AI that calculates exact ball trajectories
@@ -24,56 +151,54 @@ class PhysicsExpertAI:
     - As learning AI gets better, it exploits the expert's blind spots
     """
     
-    def __init__(self, side='B', paddle_speed_multiplier=0.9, reaction_frames=0, difficulty=None):
+    def __init__(self, side='B', control_config=None, difficulty=None):
         """
         Initialize Physics Expert AI
         
         Args:
             side: Which paddle this AI controls ('A' or 'B')
-            paddle_speed_multiplier: Speed multiplier (0.9 = slightly slower than perfect)
-            reaction_frames: Frames of delay before reacting (0 = instant)
-            difficulty: DifficultyLevel object for tournament scaling (optional)
+            control_config: ExpertControlConfig instance (or None for default medium)
+            difficulty: DifficultyLevel object for tournament scaling (optional, overrides config)
         """
         self.side = side
         self.paddle_x = -350 if side == 'A' else 350
-        self.paddle_speed_multiplier = paddle_speed_multiplier
-        self.reaction_frames = reaction_frames
         self.difficulty = difficulty
         
-        # Distance interrupt - freeze when ball is this close
-        self.freeze_distance_before = 150  # Freeze when ball approaching within this distance
-        self.freeze_distance_after = 100   # Stay frozen after ball passes until it's this far away
-        self.is_frozen = False  # Track if currently in freeze state
-        self.last_ball_x = 0  # Track ball position to detect pass-through
+        # Use provided config or default to medium
+        self.control_config = control_config if control_config else ExpertPresets.medium()
+        
+        # Extract config values for easier access
+        config = self.control_config
+        self.paddle_speed_multiplier = config.paddle_speed_multiplier
+        self.reaction_frames = config.reaction_frames
+        self.freeze_distance_before = config.freeze_distance_before
+        self.freeze_distance_after = config.freeze_distance_after
+        self.calculation_interval = config.calculation_interval
+        self.max_velocity = config.max_velocity
+        self.acceleration = config.acceleration
+        
+        # PID parameters (can be overridden by difficulty)
+        if self.difficulty:
+            self.kp, self.ki, self.kd = self.difficulty.get_pid_params(
+                config.kp, config.ki, config.kd
+            )
+        else:
+            self.kp = config.kp
+            self.ki = config.ki
+            self.kd = config.kd
+        
+        self.max_integral = config.max_integral
         
         # State tracking
+        self.is_frozen = False
+        self.last_ball_x = 0
         self.frames_since_decision = 0
         self.target_y = 0
         self.current_velocity = 0
-        self.max_velocity = 50  # Maximum paddle velocity per frame
-        self.acceleration = 5  # Paddle acceleration
-        
-        # Calculation frequency throttling
-        self.calculation_interval = 4  # Only recalculate every N frames (reduces jitter)
         self.frames_since_calculation = 0
         self.cached_target_y = 0
-        
-        # PID Controller base parameters (can be scaled by difficulty)
-        base_kp = 0.35  # Proportional gain
-        base_ki = 0.005  # Integral gain
-        base_kd = 0.25  # Derivative gain
-        
-        # Apply difficulty-based PID scaling if difficulty provided
-        if self.difficulty:
-            self.kp, self.ki, self.kd = self.difficulty.get_pid_params(base_kp, base_ki, base_kd)
-        else:
-            self.kp = base_kp
-            self.ki = base_ki
-            self.kd = base_kd
-        
         self.last_error = 0
         self.integral_error = 0
-        self.max_integral = 100  # Prevent integral windup
         
         # Physics calculation cache
         self.prediction_cache = None
@@ -230,12 +355,17 @@ class PhysicsExpertAI:
         
         This creates smooth, professional-looking paddle movement
         """
+        config = self.control_config
+        
         # Calculate error (distance to target)
         error = target_y - current_y
         
         # Dead zone - close enough, stop moving
         # Larger dead zone when at center to prevent jitter
-        dead_zone_threshold = 15 if abs(target_y) < 10 else 5
+        if abs(target_y) < 10:
+            dead_zone_threshold = config.dead_zone_threshold
+        else:
+            dead_zone_threshold = config.center_dead_zone_threshold
         
         if abs(error) < dead_zone_threshold:
             self.current_velocity *= 0.5  # Quick deceleration
@@ -272,7 +402,7 @@ class PhysicsExpertAI:
         
         # Convert velocity to discrete action
         # Use hysteresis to prevent action flickering
-        threshold = max_speed * 0.3
+        threshold = max_speed * config.action_threshold_multiplier
         
         if self.current_velocity > threshold:
             return Action.UP
@@ -306,42 +436,48 @@ class PhysicsExpertAI:
     
     def get_info(self):
         """Get information about this AI for display"""
+        config = self.control_config
         return {
             'type': 'Physics Expert System',
             'side': self.side,
-            'speed_multiplier': self.paddle_speed_multiplier,
-            'reaction_frames': self.reaction_frames,
-            'freeze_before': self.freeze_distance_before,
-            'freeze_after': self.freeze_distance_after,
-            'description': f"Perfect Physics AI (Speed: {self.paddle_speed_multiplier:.0%}, Freeze: {self.freeze_distance_before}px→{self.freeze_distance_after}px)",
+            'speed_multiplier': config.paddle_speed_multiplier,
+            'reaction_frames': config.reaction_frames,
+            'freeze_before': config.freeze_distance_before,
+            'freeze_after': config.freeze_distance_after,
+            'description': f"Perfect Physics AI (Speed: {config.paddle_speed_multiplier:.0%}, Freeze: {config.freeze_distance_before}px→{config.freeze_distance_after}px)",
+            'paddle_control': {
+                'calculation_interval': config.calculation_interval,
+                'max_velocity': config.max_velocity,
+                'pid_params': f"Kp={self.kp:.2f}, Ki={self.ki:.3f}, Kd={self.kd:.2f}"
+            },
             'strategy': 'Extended Freeze Zone - No movement during entire collision window',
             'weakness': 'Ignores spin and curve - exploitable by advanced tactics!'
         }
 
 
-# Difficulty presets
+# Difficulty presets (kept for backward compatibility)
 class PerfectPhysicsAI(PhysicsExpertAI):
     """Perfect physics AI - nearly unbeatable without spin/curve"""
     def __init__(self, side='B'):
-        super().__init__(side=side, paddle_speed_multiplier=1.0, reaction_frames=0)
+        super().__init__(side=side, control_config=ExpertPresets.perfect())
 
 
 class FastPhysicsAI(PhysicsExpertAI):
     """Fast physics AI - very challenging"""
     def __init__(self, side='B'):
-        super().__init__(side=side, paddle_speed_multiplier=0.95, reaction_frames=1)
+        super().__init__(side=side, control_config=ExpertPresets.hard())
 
 
 class MediumPhysicsAI(PhysicsExpertAI):
     """Medium physics AI - balanced opponent"""
     def __init__(self, side='B'):
-        super().__init__(side=side, paddle_speed_multiplier=0.85, reaction_frames=2)
+        super().__init__(side=side, control_config=ExpertPresets.medium())
 
 
 class SlowPhysicsAI(PhysicsExpertAI):
     """Slow physics AI - easier to beat"""
     def __init__(self, side='B'):
-        super().__init__(side=side, paddle_speed_multiplier=0.7, reaction_frames=3)
+        super().__init__(side=side, control_config=ExpertPresets.easy())
 
 
 def create_physics_expert(difficulty='perfect', side='B'):
@@ -349,7 +485,7 @@ def create_physics_expert(difficulty='perfect', side='B'):
     Create physics expert AI with specified difficulty
     
     Args:
-        difficulty: 'perfect', 'fast', 'medium', or 'slow'
+        difficulty: 'perfect', 'fast', 'medium', 'easy', or 'slow' (alias for 'easy')
         side: 'A' or 'B'
     
     Returns:
@@ -357,11 +493,11 @@ def create_physics_expert(difficulty='perfect', side='B'):
     """
     if difficulty == 'perfect':
         return PerfectPhysicsAI(side)
-    elif difficulty == 'fast':
+    elif difficulty in ('fast', 'hard'):
         return FastPhysicsAI(side)
     elif difficulty == 'medium':
         return MediumPhysicsAI(side)
-    elif difficulty == 'slow':
+    elif difficulty in ('slow', 'easy'):
         return SlowPhysicsAI(side)
     else:
         return MediumPhysicsAI(side)

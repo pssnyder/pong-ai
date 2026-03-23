@@ -10,10 +10,74 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from pong_engine import PongEngine, Action
-from pong_expert_ai import create_physics_expert, PhysicsExpertAI
-from pong_learning_ai import LearningAI
+from pong_expert_ai import PhysicsExpertAI, ExpertPresets, ExpertControlConfig
+from pong_learning_ai import LearningAI, ControlPresets, PaddleControlConfig
 import os
 import time
+
+
+# ============================================================================
+#                    TRAINING CONFIGURATION
+# ============================================================================
+# Configure AI behaviors here for easy tuning
+
+def get_training_configs(use_curriculum=True):
+    """
+    Configure both AIs for training
+    
+    Tuning Guide:
+    - Set use_curriculum=True to enable progressive skill building (RECOMMENDED)
+    - Set use_curriculum=False to use fixed configuration
+    - Use ControlPresets for quick preset selection
+    - Create custom PaddleControlConfig for fine-tuning
+    - Adjust learning AI's decision_interval to control reactivity
+    - Adjust expert AI's paddle_speed_multiplier to control difficulty
+    
+    Args:
+        use_curriculum: Enable curriculum learning (True = staged progression)
+    
+    Returns:
+        tuple: (learning_config, expert_config, use_curriculum)
+    """
+    
+    # LEARNING AI CONFIGURATION
+    if use_curriculum:
+        # Use curriculum learning (RECOMMENDED for proper skill development)
+        # AI will progress through phases:
+        #   Phase 1 (0-500): Observation & Tracking
+        #   Phase 2 (500-2000): Trajectory Prediction  
+        #   Phase 3 (2000+): Advanced Physics Exploitation
+        learning_config = None  # Will be set by curriculum system
+    else:
+        # Use fixed configuration (no progression)
+        learning_config = ControlPresets.ultra_smooth()
+        
+        # OR customize for specific behavior:
+        # learning_config = PaddleControlConfig(
+        #     decision_interval=4,        # More patient decisions
+        #     action_commitment_frames=3,  # Commits to actions longer
+        #     max_velocity=42.0,          # Slightly limited speed
+        #     kp=0.35,                    # Moderate response
+        #     kd=0.4                      # Strong damping (smooth)
+        # )
+    
+    # EXPERT AI CONFIGURATION
+    # Use medium preset for balanced training opponent
+    expert_config = ExpertPresets.medium()
+    
+    # OR customize difficulty:
+    # expert_config = ExpertControlConfig(
+    #     paddle_speed_multiplier=0.85,  # 85% speed
+    #     reaction_frames=2,             # 2 frame delay
+    #     calculation_interval=5,        # Recalculate less often
+    #     kp=0.3,                        # Gentler response
+    #     kd=0.3                         # More damping
+    # )
+    
+    return learning_config, expert_config, use_curriculum
+
+
+# ============================================================================
 
 
 def visual_training(games=100, max_points=5, save_every=25, enable_spin=True, enable_curve=True):
@@ -43,6 +107,9 @@ def visual_training(games=100, max_points=5, save_every=25, enable_spin=True, en
     print("=" * 75)
     print()
     
+    # Get AI configurations
+    learning_config, expert_config, use_curriculum = get_training_configs(use_curriculum=True)
+    
     # Create engine
     engine = PongEngine(
         visible=True,
@@ -53,9 +120,41 @@ def visual_training(games=100, max_points=5, save_every=25, enable_spin=True, en
         frame_rate=200
     )
     
-    # Create AIs
-    learning_ai = LearningAI(side='A', learning_rate=0.001, discount_factor=0.95)
-    expert_ai = PhysicsExpertAI(side='B', paddle_speed_multiplier=0.90, reaction_frames=1)
+    # Create AIs with paddle control configurations
+    learning_ai = LearningAI(
+        side='A', 
+        learning_rate=0.001, 
+        discount_factor=0.95,
+        paddle_config=learning_config,
+        use_curriculum=use_curriculum
+    )
+    expert_ai = PhysicsExpertAI(
+        side='B', 
+        control_config=expert_config
+    )
+    
+    # Display AI configurations
+    print("🔧 TRAINING CONFIGURATION:")
+    if use_curriculum:
+        print(f"  Learning AI: CURRICULUM LEARNING ENABLED")
+        if learning_ai.current_phase:
+            phase = learning_ai.current_phase
+            print(f"    Current Phase: {phase.name}")
+            print(f"    Description: {phase.description}")
+            print(f"    Settings: interval={phase.decision_interval}f, "
+                  f"commit={phase.action_commitment_frames}f, "
+                  f"vel={phase.max_velocity:.0f}, "
+                  f"PID=({phase.kp:.2f}/{phase.kd:.2f})")
+            print(f"    Phase progression will auto-adjust behavior at 500 and 2000 games")
+    else:
+        print(f"  Learning AI: FIXED CONFIGURATION")
+        if learning_config:
+            print(f"    Settings: interval={learning_config.decision_interval}f, "
+                  f"vel={learning_config.max_velocity:.0f}, "
+                  f"PID=({learning_config.kp:.2f}, {learning_config.kd:.2f})")
+    print(f"  Expert AI: speed={expert_config.paddle_speed_multiplier:.0%}, "
+          f"reaction={expert_config.reaction_frames}f")
+    print()
     
     # Try to load existing model
     model_path = 'models/pong_learning_ai.pkl'
@@ -187,17 +286,42 @@ def fast_training(games=1000, max_points=5, save_every=100):
     print(f"\nTraining {games} games with no graphics (much faster!)")
     print("Progress will be shown every 100 games\n")
     
+    # Get AI configurations  
+    learning_config, expert_config, use_curriculum = get_training_configs(use_curriculum=True)
+    
     # Headless engine
     engine = PongEngine(visible=False, ball_speed=2.0, enable_spin=True, enable_curve=True)
     
-    learning_ai = LearningAI(side='A', learning_rate=0.001)
-    expert_ai = PhysicsExpertAI(side='B', paddle_speed_multiplier=0.90)
+    # Create AIs with configurations
+    learning_ai = LearningAI(
+        side='A', 
+        learning_rate=0.001,
+        paddle_config=learning_config,
+        use_curriculum=use_curriculum
+    )
+    expert_ai = PhysicsExpertAI(
+        side='B', 
+        control_config=expert_config
+    )
     
     model_path = 'models/pong_learning_ai.pkl'
     if os.path.exists(model_path):
         learning_ai.load(model_path)
         stats = learning_ai.get_stats()
         print(f"✅ Loaded existing model ({stats['games_played']} games, {stats['win_rate']*100:.1f}% Learning AI win rate)")
+    
+    # Display configurations
+    if use_curriculum:
+        phase = learning_ai.current_phase
+        if phase:
+            print(f"🔧 Learning AI: CURRICULUM - {phase.name}")
+            print(f"   interval={phase.decision_interval}f, vel={phase.max_velocity:.0f}, PID=({phase.kp:.2f}/{phase.kd:.2f})")
+    elif learning_config:
+        print(f"🔧 Learning AI: FIXED CONFIG")
+        print(f"   interval={learning_config.decision_interval}f, "
+              f"vel={learning_config.max_velocity:.0f}, PID=({learning_config.kp:.2f},{learning_config.kd:.2f})")
+    print(f"🔧 Expert AI: speed={expert_config.paddle_speed_multiplier:.0%}, "
+          f"reaction={expert_config.reaction_frames}f\n")
     
     start_time = time.time()
     
