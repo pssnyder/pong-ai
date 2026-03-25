@@ -1,3 +1,2 @@
 pong-ai.code-workspace
-models/*
-models/pong_learning_ai.pkl
+*.pkl
