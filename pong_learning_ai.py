@@ -377,9 +377,9 @@ class LearningAI:
         self.last_action = Action.STAY
         self.last_paddle_y = 0.0
         
-        # Neural networks (10 inputs: ball x/y/dx/dy/spin, paddle positions/velocities)
-        self.network = NeuralNetwork(input_size=10, hidden_size=32, output_size=3)
-        self.target_network = NeuralNetwork(input_size=10, hidden_size=32, output_size=3)
+        # Neural networks (9 inputs: ball x/y/dx/dy/spin, paddle positions/velocities)
+        self.network = NeuralNetwork(input_size=9, hidden_size=32, output_size=3)
+        self.target_network = NeuralNetwork(input_size=9, hidden_size=32, output_size=3)
         self.target_network.copy_weights_from(self.network)
         
         # Experience replay memory
@@ -389,7 +389,7 @@ class LearningAI:
         # Exploration parameters (epsilon-greedy)
         self.epsilon = 1.0  # Start with 100% random actions
         self.epsilon_min = 0.01  # Minimum exploration rate
-        self.epsilon_decay = 0.9995  # Decay rate per game
+        self.epsilon_decay = 0.995  # Decay rate per game (faster convergence)
         
         # Training stats
         self.games_played = 0
@@ -409,19 +409,20 @@ class LearningAI:
         """
         Convert game state to neural network input (includes physics features)
         
+        All features normalized to [-1, 1] range for better neural network learning.
+        
         Args:
             state: Game state dict from engine
             
         Returns:
             numpy array of normalized features
             
-        Features (10 total):
-        - Ball position (x, y)
-        - Ball velocity (dx, dy)
+        Features (9 total):
+        - Ball position (x, y) - normalized
+        - Ball velocity (dx, dy) - normalized
         - Ball spin (rotational speed - KEY for beating expert!)
-        - Own paddle (y position, y velocity)
-        - Opponent paddle (y position, y velocity)
-        - Distance to ball
+        - Own paddle (y position, y velocity) - normalized
+        - Opponent paddle (y position, y velocity) - normalized
         """
         # Get our paddle data
         if self.side == 'A':
@@ -435,20 +436,18 @@ class LearningAI:
             opp_paddle_y = state['paddle_a_y']
             opp_paddle_vel = state.get('paddle_a_vel', 0)
         
-        # Calculate additional useful features
-        ball_distance = abs(state['ball_x'])  # How close is ball
-        
+        # Normalize all features to [-1, 1] or similar range
+        # This is CRITICAL for neural network learning effectiveness
         features = [
-            state['ball_x'],          # Ball X position (-1 to 1)
-            state['ball_y'],          # Ball Y position
-            state['ball_dx'],         # Ball X velocity
-            state['ball_dy'],         # Ball Y velocity
-            state.get('ball_spin', 0), # Ball spin (KEY FEATURE!)
-            my_paddle_y,              # My paddle position
-            my_paddle_vel,            # My paddle velocity (for creating spin!)
-            opp_paddle_y,             # Opponent paddle position
-            opp_paddle_vel,           # Opponent paddle velocity
-            ball_distance,            # Distance to ball
+            state['ball_x'] / 390.0,           # Ball X (-390 to 390) → (-1 to 1)
+            state['ball_y'] / 290.0,           # Ball Y (-290 to 290) → (-1 to 1)
+            np.clip(state['ball_dx'] / 10.0, -1, 1),  # Ball X velocity (roughly ±10)
+            np.clip(state['ball_dy'] / 10.0, -1, 1),  # Ball Y velocity (roughly ±10)
+            np.clip(state.get('ball_spin', 0) / 2.0, -1, 1),  # Ball spin (max ~2)
+            my_paddle_y / 230.0,               # My paddle Y (-230 to 230) → (-1 to 1)
+            np.clip(my_paddle_vel / 50.0, -1, 1),  # My paddle velocity (max ~50)
+            opp_paddle_y / 230.0,              # Opponent paddle Y (-230 to 230) → (-1 to 1)
+            np.clip(opp_paddle_vel / 50.0, -1, 1),  # Opponent paddle velocity (max ~50)
         ]
         
         return np.array(features, dtype=np.float32)
@@ -535,13 +534,17 @@ class LearningAI:
         config = self.paddle_config
         
         # Determine target position based on desired action
-        # The AI's action becomes a target direction rather than instant movement
+        # Scale target offset based on max_velocity and decision_interval for curriculum adaptation
+        # Phase 1 (slow, patient): smaller offset = gentler movement
+        # Phase 3 (fast, agile): larger offset = more aggressive repositioning
+        target_offset = config.max_velocity * (config.decision_interval / 3.0) * 0.8
+        
         if desired_action == Action.UP:
             # Want to move up - set target above current position
-            self.target_position = current_y + 50
+            self.target_position = current_y + target_offset
         elif desired_action == Action.DOWN:
             # Want to move down - set target below current position
-            self.target_position = current_y - 50
+            self.target_position = current_y - target_offset
         else:
             # Want to stay - target is current position
             self.target_position = current_y
@@ -580,14 +583,16 @@ class LearningAI:
             
             # Smooth velocity changes (low-pass filter)
             alpha = 0.7
-            self.current_velocity = (alpha * desired_velocity) + ((1 - alpha) * self.current_velocity)
+            smoothed_velocity = (alpha * desired_velocity) + ((1 - alpha) * self.current_velocity)
             
             # Acceleration limiting (prevents instant speed changes)
             max_accel_change = config.acceleration
-            velocity_change = self.current_velocity - self.current_velocity
+            velocity_change = smoothed_velocity - self.current_velocity
             if abs(velocity_change) > max_accel_change:
                 sign = 1 if velocity_change > 0 else -1
                 self.current_velocity = self.current_velocity + (sign * max_accel_change)
+            else:
+                self.current_velocity = smoothed_velocity
             
             # Clamp to max velocity
             self.current_velocity = max(-config.max_velocity, 
@@ -767,19 +772,30 @@ class LearningAI:
     def save(self, filepath):
         """Save the AI's brain to a file"""
         data = {
+            # Network architecture (for compatibility checking)
+            'input_size': self.network.input_size,
+            'hidden_size': self.network.hidden_size,
+            'output_size': self.network.output_size,
+            
+            # Network weights
             'W1': self.network.W1,
             'b1': self.network.b1,
             'W2': self.network.W2,
             'b2': self.network.b2,
+            
+            # Training progress
             'games_played': self.games_played,
             'win_count': self.win_count,
             'loss_count': self.loss_count,
             'tie_count': self.tie_count,
             'epsilon': self.epsilon,
+            
+            # Curriculum learning state
             'use_curriculum': self.use_curriculum,
             'current_phase_name': self.current_phase.name if self.current_phase else None,
             'phase_transition_games': self.phase_transition_games,
-            # Save paddle config as dict for compatibility
+            
+            # Paddle control config
             'paddle_config': {
                 'decision_interval': self.paddle_config.decision_interval,
                 'action_commitment_frames': self.paddle_config.action_commitment_frames,
@@ -807,6 +823,21 @@ class LearningAI:
         
         with open(filepath, 'rb') as f:
             data = pickle.load(f)
+        
+        # Check architecture compatibility (critical after input feature changes)
+        saved_input_size = data['W1'].shape[0]
+        saved_hidden_size = data['W1'].shape[1]
+        saved_output_size = data['W2'].shape[1]
+        
+        if (saved_input_size != self.network.input_size or 
+            saved_hidden_size != self.network.hidden_size or
+            saved_output_size != self.network.output_size):
+            print(f"\n⚠️  MODEL ARCHITECTURE MISMATCH - Cannot load!")
+            print(f"   Saved model: {saved_input_size} inputs → {saved_hidden_size} hidden → {saved_output_size} outputs")
+            print(f"   Current code: {self.network.input_size} inputs → {self.network.hidden_size} hidden → {self.network.output_size} outputs")
+            print(f"\n   This model was trained with an older version of the code.")
+            print(f"   Starting fresh training with the new architecture...\n")
+            return False
         
         self.network.W1 = data['W1']
         self.network.b1 = data['b1']

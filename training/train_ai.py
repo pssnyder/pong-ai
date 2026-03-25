@@ -164,6 +164,9 @@ def visual_training(games=100, max_points=5, save_every=25, enable_spin=True, en
             stats = learning_ai.get_stats()
             print(f"   Resuming from: {stats['games_played']} games, {stats['win_rate']*100:.1f}% Learning AI win rate")
             print()
+        else:
+            print(f"🆕 Starting fresh training - existing model incompatible with current code")
+            print()
     else:
         print("🆕 Starting fresh training - new neural network created")
         print()
@@ -306,9 +309,13 @@ def fast_training(games=1000, max_points=5, save_every=100):
     
     model_path = 'models/pong_learning_ai.pkl'
     if os.path.exists(model_path):
-        learning_ai.load(model_path)
-        stats = learning_ai.get_stats()
-        print(f"✅ Loaded existing model ({stats['games_played']} games, {stats['win_rate']*100:.1f}% Learning AI win rate)")
+        if learning_ai.load(model_path):
+            stats = learning_ai.get_stats()
+            print(f"✅ Loaded existing model ({stats['games_played']} games, {stats['win_rate']*100:.1f}% Learning AI win rate)")
+        else:
+            print(f"🆕 Starting fresh - existing model incompatible with current code")
+    else:
+        print(f"🆕 Starting fresh - new neural network created")
     
     # Display configurations
     if use_curriculum:
