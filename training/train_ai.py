@@ -223,7 +223,13 @@ def visual_training(games=100, max_points=5, save_every=25, enable_spin=True, en
             
             # Game ended - final learning update
             if prev_state is not None and prev_action is not None:
-                final_reward = 10 if state['score_a'] > state['score_b'] else -10
+                # Calculate final reward: Win=+10, Loss=-10, Tie=0
+                if state['score_a'] > state['score_b']:
+                    final_reward = 10  # Win
+                elif state['score_a'] < state['score_b']:
+                    final_reward = -10  # Loss
+                else:
+                    final_reward = 0  # Tie (neither won before max_frames)
                 learning_ai.remember(prev_state, prev_action, final_reward, state, True)
             
             # Train on experiences
@@ -234,15 +240,24 @@ def visual_training(games=100, max_points=5, save_every=25, enable_spin=True, en
             learning_ai.end_game(state['score_a'], state['score_b'])
             
             # Print game results
-            winner = "🔵 LEARNING AI" if state['score_a'] > state['score_b'] else "🔴 EXPERT"
-            print(f"\n  🏆 WINNER: {winner}")
+            if state['score_a'] > state['score_b']:
+                winner = "🔵 LEARNING AI"
+                result_emoji = "🏆"
+            elif state['score_a'] < state['score_b']:
+                winner = "🔴 EXPERT"
+                result_emoji = "🏆"
+            else:
+                winner = "⚖️  TIE GAME"
+                result_emoji = "⏱️ "
+            
+            print(f"\n  {result_emoji} RESULT: {winner}")
             print(f"  📊 Final Score: {state['score_a']}-{state['score_b']}")
-            print(f"  ⏱️  Frames: {frame_count}")
+            print(f"  ⏱️  Frames: {frame_count}{' (max frames reached)' if frame_count >= max_frames else ''}")
             
             # Show progress stats
             stats = learning_ai.get_stats()
             print(f"\n  📈 Learning AI Progress:")
-            print(f"     Win Rate: {stats['win_rate']*100:.1f}% ({stats['wins']}W-{stats['losses']}L vs Expert)")
+            print(f"     Win Rate: {stats['win_rate']*100:.1f}% ({stats['wins']}W-{stats['losses']}L-{stats['ties']}T vs Expert)")
             print(f"     Exploration: {stats['exploration']} (randomness)")
             print(f"     Total Games: {stats['games_played']}")
             
