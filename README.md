@@ -1,3 +1,13 @@
+---
+project:
+  id: pong-ai
+  name: Pong AI
+  date: 2026-03-26
+  status: feature-complete
+  tags: [game, arcade, AI]
+  priority: medium
+  next_action: None
+---
 # 🏓 Pong AI - Expert System vs Neural Network with Advanced Physics
 
 An educational AI playground where you can watch a neural network learn to beat a physics-perfect expert system!
